@@ -4,9 +4,11 @@ from fastapi import FastAPI
 
 from app import __version__
 from app.config import Settings, load_settings
+from app.logging_setup import configure_logging
 
 
 def create_app(settings: Settings) -> FastAPI:
+    configure_logging()
     app = FastAPI(title="SQL Server Diagnostic Assistant", version=__version__)
     app.state.settings = settings
 
