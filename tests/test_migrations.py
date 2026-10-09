@@ -65,11 +65,17 @@ def _base_table_names(engine: Engine) -> set[str]:
 
 
 @pytest.fixture
-def throwaway_database(monkeypatch) -> Iterator[tuple[str, Engine]]:
-    """Create ``ssda_test_<uuid>``, yield it, then drop it."""
+def throwaway_database(monkeypatch) -> Iterator[tuple[str, Engine, Engine]]:
+    """Create ``ssda_test_<uuid>``, yield it, then drop it.
+
+    Yields ``(db_name, target_engine, admin_engine)`` where ``target_engine``
+    points at the throwaway database (the one Alembic migrates) and
+    ``admin_engine`` points at ``master`` for create/drop.
+    """
     url = _repository_url()
     db_name = f"ssda_test_{uuid.uuid4().hex}"
     target_url = url.set(database=db_name)
+    target_engine = create_engine(target_url)
     admin_engine = create_engine(
         url.set(database="master"), isolation_level="AUTOCOMMIT"
     )
@@ -81,8 +87,9 @@ def throwaway_database(monkeypatch) -> Iterator[tuple[str, Engine]]:
         monkeypatch.setenv(
             "DATABASE_URL", target_url.render_as_string(hide_password=False)
         )
-        yield db_name, admin_engine
+        yield db_name, target_engine, admin_engine
     finally:
+        target_engine.dispose()
         with admin_engine.connect() as connection:
             connection.execute(
                 text(
@@ -95,15 +102,15 @@ def throwaway_database(monkeypatch) -> Iterator[tuple[str, Engine]]:
 
 
 def test_upgrade_head_then_downgrade_base(throwaway_database):
-    _db_name, admin_engine = throwaway_database
+    _db_name, target_engine, _admin_engine = throwaway_database
     config = Config(str(ALEMBIC_INI))
 
     command.upgrade(config, "head")
 
-    after_upgrade = _base_table_names(admin_engine)
+    after_upgrade = _base_table_names(target_engine)
     assert after_upgrade == {ALEMBIC_OWN_TABLE}
 
     command.downgrade(config, "base")
 
-    after_downgrade = _base_table_names(admin_engine)
+    after_downgrade = _base_table_names(target_engine)
     assert after_downgrade == {ALEMBIC_OWN_TABLE}
