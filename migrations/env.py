@@ -11,18 +11,27 @@ from alembic import context
 from sqlalchemy import create_engine, pool
 
 from app.config import load_settings
+from app.db.models import Base
 
 config = context.config
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# No domain models yet; later tasks attach their metadata here for autogenerate.
-target_metadata = None
+# Domain model metadata, used by ``alembic revision --autogenerate``.
+target_metadata = Base.metadata
 
 
 def _database_url() -> str:
-    """Return the repository URL from application settings at runtime."""
+    """Return the target URL.
+
+    A caller (e.g. per-organization provisioning) may point the migration at a
+    specific database by setting ``sqlalchemy.url`` on the Alembic config.
+    Otherwise the repository URL from application settings is used.
+    """
+    configured = config.get_main_option("sqlalchemy.url")
+    if configured:
+        return configured
     return load_settings().database_url
 
 
