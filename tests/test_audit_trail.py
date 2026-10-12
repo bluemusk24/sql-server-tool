@@ -20,8 +20,11 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy import create_engine
 
 from app.ai.schemas import Cause, ConfidenceLabel
+from app.db.models import AppendOnlyViolation, Audit, Base
+from app.db.session import build_session_factory
 from app.diagnostics.catalog import build_catalog
 from app.investigations.repository import (
     InMemoryApprovalRepository,
@@ -341,3 +344,34 @@ def test_reading_stored_artifacts_writes_no_audit_rows():
     repository.get_report_payload(1)
 
     assert audit.entries == []
+
+
+def test_audit_rows_are_append_only_at_the_model_level():
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    factory = build_session_factory(engine)
+
+    with factory() as session:
+        row = Audit(
+            actor="dba",
+            action="investigation.create",
+            target="investigation:1",
+        )
+        session.add(row)
+        session.commit()
+        row_id = row.id
+
+    with factory() as session:
+        stored = session.get(Audit, row_id)
+        stored.action = "report.access"
+        with pytest.raises(AppendOnlyViolation):
+            session.flush()
+        session.rollback()
+
+    # Deletes are allowed: the retention cleanup removes aged rows.
+    with factory() as session:
+        session.delete(session.get(Audit, row_id))
+        session.commit()
+
+    with factory() as session:
+        assert session.get(Audit, row_id) is None

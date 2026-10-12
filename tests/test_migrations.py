@@ -31,6 +31,11 @@ ALEMBIC_OWN_TABLE = "alembic_version"
 ORGANIZATION_TABLE = "organization"
 INVESTIGATION_TABLE = "investigation"
 APPROVAL_TABLE = "approval"
+EVIDENCE_RUN_TABLE = "evidence_run"
+FINDING_TABLE = "finding"
+VERDICT_TABLE = "verdict"
+REPORT_PAYLOAD_TABLE = "report_payload"
+AUDIT_TABLE = "audit"
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 ALEMBIC_INI = PROJECT_ROOT / "alembic.ini"
 
@@ -116,6 +121,11 @@ def test_upgrade_head_then_downgrade_base(throwaway_database):
         ORGANIZATION_TABLE,
         INVESTIGATION_TABLE,
         APPROVAL_TABLE,
+        EVIDENCE_RUN_TABLE,
+        FINDING_TABLE,
+        VERDICT_TABLE,
+        REPORT_PAYLOAD_TABLE,
+        AUDIT_TABLE,
     }
 
     command.downgrade(config, "base")
