@@ -32,3 +32,6 @@ htmlcov/
 .env
 .env.local
 .env.*.local
+
+# Skipped test placeholders
+*.skip
