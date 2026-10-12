@@ -1,0 +1,61 @@
+/*
+ * Single stylesheet for the POC (#22).
+ *
+ * `_docs/design-system.md` does not exist yet, so the
+ * organization color is a CSS variable here — the single place
+ * to change it when the design system lands.
+ */
+
+:root {
+  --org-color: #1f4e79;
+  --org-color-contrast: #ffffff;
+  --surface: #ffffff;
+  --text: #1a1a1a;
+  --muted: #5a6472;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: var(--text);
+  background: #f5f6f8;
+}
+
+main {
+  max-width: 46rem;
+  margin: 2rem auto;
+  padding: 1.5rem;
+  background: var(--surface);
+  border-radius: 0.5rem;
+}
+
+h1 {
+  color: var(--org-color);
+}
+
+h2 {
+  color: var(--org-color);
+  font-size: 1.1rem;
+}
+
+p {
+  color: var(--muted);
+}
+
+button {
+  background: var(--org-color);
+  color: var(--org-color-contrast);
+  border: 0;
+  border-radius: 0.375rem;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+[role="alert"] {
+  color: #8a1f1f;
+}

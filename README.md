@@ -1,38 +1,48 @@
 # SQL Server Diagnostic Assistant
 
-On-demand, read-only diagnostic assistant for SQL Server incidents. Scope lives
-in `_docs/plan.md`; how work is organized lives in `_docs/process.md`.
+An on-demand, **read-only** assistant that helps DBAs diagnose SQL Server
+and application performance incidents. A DBA signs in, enters a SQL Server
+connection, reviews and approves the diagnostic query batch, and receives
+evidence, likely causes, validation checks, and remediation guidance.
 
-## Run locally
+## Stack
 
-```sh
-uv sync
-cp .env.example .env   # then fill in DATABASE_URL, REDIS_URL, OIDC_*, LLM_*
-uv run uvicorn app.main:app --reload
+- **Backend:** Python 3.11+, FastAPI, Pydantic, SQLAlchemy + Alembic,
+  `pyodbc` (Microsoft ODBC Driver 18), arq + Redis, Pandas/Polars,
+  Authlib, WeasyPrint.
+- **Frontend:** React + TypeScript, Vite, React Router, Vitest.
+
+## Backend
+
+```bash
+uv sync                        # install dependencies
+uv run pytest                  # run the test suite
+uv run ruff check .            # lint
+uv run uvicorn app.main:app --reload   # run the API (default :8000)
+arq app.worker.WorkerSettings          # run the background worker
 ```
 
-`GET /health` returns service status. Config is read from the environment with
-`.env` as the base; missing required settings fail fast at startup.
+Configuration comes from environment variables (see `.env.example`);
+`.env` is git-ignored and never committed.
 
-## Background worker
+## Frontend
 
-Diagnostic runs are queued to Redis and executed by an arq worker (#11), so the
-HTTP request never blocks on a run. Run the worker against the same `REDIS_URL`:
-
-```sh
-uv run arq app.worker.WorkerSettings
+```bash
+cd frontend
+npm install        # install dependencies
+npm run dev        # start the Vite dev server (http://localhost:5173)
+npm run build      # type-check and build for production
+npm test           # run the Vitest suite
 ```
 
-The worker settings object is `app.worker.WorkerSettings`; arq resolves queued
-tasks by dotted module path, so every task lives in `app.worker`. Worker retry
-and timeout policy is config-driven via `JOB_MAX_TRIES`, `JOB_TIMEOUT_SECONDS`,
-`WORKER_MAX_JOBS`, `WORKER_QUEUE_NAME`, and `JOB_RETRY_JOBS`.
+The frontend calls the API at `VITE_API_BASE_URL` (see
+`frontend/.env.example`); the Vite dev server proxies API paths
+(`/health`, `/auth`, `/investigations`, `/jobs`, `/reports`) to
+`http://localhost:8000`.
 
-## Checks
+## Documentation
 
-- `uv run pytest` - the whole suite
-- `uv run ruff check .` - lint
-
-Integration tests that need live infrastructure are gated and skip visibly:
-`RUN_DB_TESTS=1` for SQL Server and `RUN_REDIS_TESTS=1` for the Redis-backed
-queue round-trip.
+- `_docs/plan.md` — product scope (POC).
+- `_docs/process.md` — how work is organized (roles and lifecycle).
+- `_docs/team/` — agent roles (PM, engineer, QA).
+- Tasks are GitHub issues in this repository.
