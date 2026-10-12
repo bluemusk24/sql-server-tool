@@ -1,0 +1,35 @@
+<RingBufferTarget>
+  <event name="xml_deadlock_report" timestamp="2026-10-10T14:22:11.123">
+    <data name="xml_report">
+      <value>
+        <deadlock>
+          <victim-list>
+            <victimProcess id="process1" />
+          </victim-list>
+          <process-list>
+            <process id="process1" spid="61" inputbuf="UPDATE dbo.A SET x = 1" />
+            <process id="process2" spid="72" inputbuf="SELECT * FROM dbo.B" />
+          </process-list>
+          <resource-list />
+        </deadlock>
+      </value>
+    </data>
+  </event>
+  <event name="xml_deadlock_report" timestamp="2026-10-10T14:25:44.456">
+    <data name="xml_report">
+      <value>
+        <deadlock>
+          <victim-list>
+            <victimProcess id="process9" />
+          </victim-list>
+          <process-list>
+            <process id="process9" spid="88" inputbuf="DELETE FROM dbo.C" />
+            <process id="process7" spid="90" inputbuf="UPDATE dbo.D SET y = 2" />
+            <process id="process8" spid="91" inputbuf="SELECT 1" />
+          </process-list>
+          <resource-list />
+        </deadlock>
+      </value>
+    </data>
+  </event>
+</RingBufferTarget>

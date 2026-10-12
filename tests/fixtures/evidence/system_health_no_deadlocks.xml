@@ -1,0 +1,12 @@
+<RingBufferTarget>
+  <event name="sp_server_diagnostics_component_result" timestamp="2026-10-10T14:20:00.000">
+    <data name="component">
+      <value>healthy</value>
+    </data>
+  </event>
+  <event name="sp_server_diagnostics_component_result" timestamp="2026-10-10T14:21:00.000">
+    <data name="component">
+      <value>healthy</value>
+    </data>
+  </event>
+</RingBufferTarget>

@@ -16,6 +16,7 @@ Two status dimensions are modelled:
 
 from __future__ import annotations
 
+from datetime import datetime
 from enum import Enum
 from typing import Any
 
@@ -65,6 +66,31 @@ class QueryEvidence(BaseModel):
     rows: list[dict[str, Any]] = Field(default_factory=list)
     error: str | None = None
     truncated: bool = False
+
+
+class EvidenceRow(BaseModel):
+    """One structured finding normalised from raw DMV rows by a collector.
+
+    Category collectors (#13-#16) turn the raw :class:`QueryEvidence` rows into
+    these records for the rules engine (#17). The four fields every row carries
+    are ``area`` (the specific issue area, e.g. ``blocking`` or ``deadlocks``),
+    ``timestamp`` (the event time when the source has one, ``None`` for a
+    current-state snapshot), ``description`` (a credential-free sentence for the
+    report), and ``status`` (the #12 source status the row belongs to).
+
+    ``available`` is ``False`` for an explicit gap marker such as unretained
+    historical blocking evidence, so the report can show the gap rather than
+    claiming the source was checked. ``details`` carries the source-specific,
+    credential-free structured fields (session ids, durations, deadlock victim
+    and participants).
+    """
+
+    area: str
+    timestamp: datetime | None = None
+    description: str
+    available: bool = True
+    status: SourceStatus = SourceStatus.collected
+    details: dict[str, Any] = Field(default_factory=dict)
 
 
 class EvidenceSource(BaseModel):

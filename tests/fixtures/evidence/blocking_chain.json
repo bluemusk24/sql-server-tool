@@ -1,0 +1,29 @@
+[
+  {
+    "session_id": 60,
+    "blocking_session_id": 57,
+    "login_name": "app_c",
+    "wait_type": "LCK_M_X",
+    "wait_time": 8200,
+    "status": "suspended",
+    "command": "UPDATE"
+  },
+  {
+    "session_id": 57,
+    "blocking_session_id": 52,
+    "login_name": "app_b",
+    "wait_type": "LCK_M_S",
+    "wait_time": 5000,
+    "status": "suspended",
+    "command": "SELECT"
+  },
+  {
+    "session_id": 55,
+    "blocking_session_id": 57,
+    "login_name": "app_d",
+    "wait_type": "LCK_M_IX",
+    "wait_time": 1200,
+    "status": "suspended",
+    "command": "INSERT"
+  }
+]
