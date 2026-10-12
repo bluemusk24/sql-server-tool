@@ -1,8 +1,8 @@
 # AGENTS.md
 
 SQL Server Diagnostic Assistant (MVP) — an on-demand, **read-only** assistant that
-helps DBAs diagnose SQL Server incidents. Product scope lives in `_docs/plan.md`;
-how work is organized lives in `_docs/process.md`.
+helps DBAs diagnose SQL Server incidents. Product scope lives in `docs/spec.md`;
+how work is organized lives in `docs/process.md`.
 
 ## Where the work lives
 
@@ -19,18 +19,37 @@ before closing.
 
 - Backend: Python 3.11+, FastAPI, Pydantic, SQLAlchemy + Alembic, `pyodbc`
   (Microsoft ODBC Driver 18), arq + Redis, Pandas/Polars, Authlib, WeasyPrint.
-- Frontend: React + TypeScript.
+- Frontend: React + TypeScript, Vite, React Router, Vitest.
+
+## Project layout
+
+```
+backend/    # FastAPI application, tests, migrations
+docs/       # spec.md, process.md, team docs
+frontend/   # React + TypeScript SPA
+openapi.yaml
+AGENTS.md
+```
 
 ## Commands
 
+### Backend (from `backend/`)
+
 - `uv sync` - install dependencies
 - `uv run pytest` - the whole suite
-- `uv run pytest tests/test_home.py` - one test file
 - `uv run ruff check .` - lint
+
+### Frontend (from `frontend/`)
+
+- `npm install` - install dependencies
+- `npm run dev` - start Vite dev server (http://localhost:5173)
+- `npm run build` - type-check and build for production
+- `npm test` - run the Vitest suite
 
 ## Rules
 
-- Dependencies are added in `pyproject.toml`. Do not add one without asking.
+- Dependencies are added in `pyproject.toml` (backend) or `package.json`
+  (frontend). Do not add one without asking.
 - Work one issue at a time; read the acceptance criteria before starting and
   before closing.
 - Commit regularly.

@@ -2,7 +2,7 @@
 name = "sql-server-tool"
 version = "0.1.0"
 description = "SQL Server Diagnostic Assistant"
-readme = "README.md"
+readme = "../README.md"
 requires-python = ">=3.11"
 dependencies = [
     "alembic>=1.20.0",

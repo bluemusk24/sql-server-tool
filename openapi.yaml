@@ -1,0 +1,233 @@
+openapi: "3.1.0"
+info:
+  title: SQL Server Diagnostic Assistant
+  version: "0.1.0"
+  description: |
+    On-demand, read-only diagnostic assistant for Microsoft SQL Server.
+    A DBA signs in, enters a SQL Server connection, reviews and approves
+    the diagnostic query batch, and receives evidence, likely causes,
+    validation checks, and remediation guidance.
+servers:
+  - url: http://localhost:8000
+    description: Local development
+tags:
+  - name: auth
+    description: OIDC session and authorization
+  - name: investigations
+    description: Create and manage investigations
+  - name: approvals
+    description: Per-query approve/reject decisions
+  - name: jobs
+    description: Background diagnostic run status
+  - name: reports
+    description: Incident report payload and PDF
+paths:
+  /health:
+    get:
+      tags: [health]
+      summary: Liveness and version
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+                  version: { type: string }
+  /auth/session:
+    get:
+      tags: [auth]
+      summary: Current session indicator
+      responses:
+        "200":
+          description: Session resolved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  organization: { type: string }
+                  actor: { type: string }
+        "404":
+          description: No session
+  /auth/authorize:
+    get:
+      tags: [auth]
+      summary: Start OIDC authorization
+      responses:
+        "200":
+          description: Authorize URL
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  authorize_url: { type: string }
+  /investigations:
+    get:
+      tags: [investigations]
+      summary: List investigations
+      responses:
+        "200":
+          description: List of investigations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: { type: integer }
+                    status: { type: string }
+    post:
+      tags: [investigations]
+      summary: Create investigation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [server_host, auth_type, lookback_hours]
+              properties:
+                server_host: { type: string }
+                server_port: { type: integer, default: 1433 }
+                auth_type: { type: string, enum: [sql, ad] }
+                databases:
+                  type: array
+                  items: { type: string }
+                lookback_hours: { type: integer, enum: [1, 4, 8, 24] }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: integer }
+                  status: { type: string }
+                  catalog:
+                    type: array
+                    items: { type: object }
+  /investigations/{id}:
+    get:
+      tags: [investigations]
+      summary: Get investigation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Investigation
+        "404":
+          description: Not found
+  /investigations/{id}/approvals:
+    get:
+      tags: [approvals]
+      summary: Get approval state
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Approval response
+    post:
+      tags: [approvals]
+      summary: Record decisions
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                decisions:
+                  type: object
+                  additionalProperties:
+                    type: string
+                    enum: [approved, rejected]
+                note: { type: string }
+      responses:
+        "200":
+          description: Updated approval response
+        "409":
+          description: Run already started
+  /investigations/{id}/run:
+    post:
+      tags: [jobs]
+      summary: Start diagnostic run
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "202":
+          description: Run queued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_id: { type: string }
+        "409":
+          description: Gate closed or already started
+  /jobs/{job_id}:
+    get:
+      tags: [jobs]
+      summary: Job status
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Job status
+        "404":
+          description: Not found
+  /reports/{id}:
+    get:
+      tags: [reports]
+      summary: Report payload
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Report payload
+        "404":
+          description: Not found
+  /reports/{id}.pdf:
+    get:
+      tags: [reports]
+      summary: Download PDF
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: PDF file
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: Not found
