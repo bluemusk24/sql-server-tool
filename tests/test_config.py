@@ -121,6 +121,17 @@ def test_worker_settings_have_configurable_defaults(monkeypatch, clear_settings_
     assert settings.job_retry_jobs is True
 
 
+def test_llm_timeout_defaults_to_sixty_seconds(monkeypatch, clear_settings_env):
+    _set_all(monkeypatch, VALID_ENV)
+    assert load_settings().llm_timeout_seconds == 60
+
+
+def test_llm_timeout_reads_from_env(monkeypatch, clear_settings_env):
+    _set_all(monkeypatch, VALID_ENV)
+    monkeypatch.setenv("LLM_TIMEOUT_SECONDS", "15")
+    assert load_settings().llm_timeout_seconds == 15
+
+
 def test_worker_settings_read_from_env(monkeypatch, clear_settings_env):
     _set_all(monkeypatch, VALID_ENV)
     monkeypatch.setenv("JOB_MAX_TRIES", "5")

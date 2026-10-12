@@ -24,7 +24,11 @@ OPTIONAL_ENV_NAMES = (
     "WORKER_MAX_JOBS",
     "WORKER_QUEUE_NAME",
     "JOB_RETRY_JOBS",
+    "LLM_TIMEOUT_SECONDS",
 )
+
+#: Default provider timeout for the #18 correlation call, in seconds.
+DEFAULT_LLM_TIMEOUT_SECONDS = 60
 
 SECRET_FIELDS = ("oidc_client_secret", "llm_api_key")
 
@@ -80,6 +84,8 @@ class Settings(BaseModel):
     worker_max_jobs: int = Field(default=10, ge=1)
     worker_queue_name: str = "arq:queue"
     job_retry_jobs: bool = True
+    #: #18 correlation call timeout, overridable via ``LLM_TIMEOUT_SECONDS``.
+    llm_timeout_seconds: int = Field(default=DEFAULT_LLM_TIMEOUT_SECONDS, ge=1)
 
     @field_validator("oidc_issuer", "llm_endpoint")
     @classmethod
