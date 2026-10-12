@@ -1,0 +1,492 @@
+{
+  "$defs": {
+    "AreaFindings": {
+      "description": "Findings for one issue area, with the rolled-up severity and confidence.\n\n``findings`` reuses the #17 :class:`~app.rules.signals.Signal` unchanged.\n``severity`` is the maximum severity of the area's signals, or ``none`` when\nthe area produced none; ``signal_count`` matches ``len(findings)``. The\nmodel refuses an inconsistent roll-up.",
+      "properties": {
+        "area": {
+          "title": "Area",
+          "type": "string"
+        },
+        "confidence_label": {
+          "$ref": "#/$defs/ConfidenceLabel",
+          "default": "low"
+        },
+        "confidence_percent": {
+          "default": 0,
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Confidence Percent",
+          "type": "integer"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/EvidenceItem"
+          },
+          "title": "Evidence",
+          "type": "array"
+        },
+        "findings": {
+          "items": {
+            "$ref": "#/$defs/Signal"
+          },
+          "title": "Findings",
+          "type": "array"
+        },
+        "severity": {
+          "$ref": "#/$defs/AreaSeverity"
+        },
+        "signal_count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Signal Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "area",
+        "severity",
+        "findings",
+        "evidence"
+      ],
+      "title": "AreaFindings",
+      "type": "object"
+    },
+    "AreaSeverity": {
+      "description": "Severity rolled up for one issue area.\n\nExtends the #17 high/medium/low :class:`~app.rules.signals.Severity` with\n``none``: an area that was checked but produced no signal still appears in\nthe report so the dashboard can show it was examined (issue #19 criterion).",
+      "enum": [
+        "high",
+        "medium",
+        "low",
+        "none"
+      ],
+      "title": "AreaSeverity",
+      "type": "string"
+    },
+    "Cause": {
+      "description": "One probable cause: an issue area, a description, and its confidence.",
+      "properties": {
+        "area": {
+          "title": "Area",
+          "type": "string"
+        },
+        "confidence_label": {
+          "$ref": "#/$defs/ConfidenceLabel",
+          "default": "low"
+        },
+        "confidence_percent": {
+          "default": 0,
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Confidence Percent",
+          "type": "integer"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        }
+      },
+      "required": [
+        "area",
+        "description"
+      ],
+      "title": "Cause",
+      "type": "object"
+    },
+    "ConfidenceLabel": {
+      "description": "The derived low/medium/high confidence band.",
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "title": "ConfidenceLabel",
+      "type": "string"
+    },
+    "CoverageGap": {
+      "description": "A source that was not collected, carrying its exact inventory note.",
+      "properties": {
+        "issue_area": {
+          "default": "",
+          "title": "Issue Area",
+          "type": "string"
+        },
+        "note": {
+          "default": "",
+          "title": "Note",
+          "type": "string"
+        },
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/SourceStatus"
+        }
+      },
+      "required": [
+        "source_id",
+        "status"
+      ],
+      "title": "CoverageGap",
+      "type": "object"
+    },
+    "DataSourceReport": {
+      "description": "One evidence source checked during the run, with its inventory status.",
+      "properties": {
+        "category": {
+          "default": "",
+          "title": "Category",
+          "type": "string"
+        },
+        "checked": {
+          "title": "Checked",
+          "type": "boolean"
+        },
+        "issue_area": {
+          "default": "",
+          "title": "Issue Area",
+          "type": "string"
+        },
+        "note": {
+          "default": "",
+          "title": "Note",
+          "type": "string"
+        },
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/SourceStatus"
+        },
+        "title": {
+          "default": "",
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_id",
+        "status",
+        "checked"
+      ],
+      "title": "DataSourceReport",
+      "type": "object"
+    },
+    "EvidenceItem": {
+      "description": "One evidence row referenced by a finding, in report form.",
+      "properties": {
+        "area": {
+          "title": "Area",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "details": {
+          "additionalProperties": true,
+          "title": "Details",
+          "type": "object"
+        },
+        "evidence_id": {
+          "title": "Evidence Id",
+          "type": "string"
+        },
+        "timestamp": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timestamp"
+        }
+      },
+      "required": [
+        "evidence_id",
+        "area",
+        "description"
+      ],
+      "title": "EvidenceItem",
+      "type": "object"
+    },
+    "Recommendation": {
+      "description": "Validation checks and remediation guidance for one area of the report.\n\n``remediation`` is step-by-step guidance for a DBA to review and run at\ntheir discretion; it is never verbatim \"the tool will run this\" (plan.md\n\u00a75/\u00a76). Both the block and each step carry :data:`READ_ONLY_DISCLAIMER`.",
+      "properties": {
+        "area": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Area"
+        },
+        "disclaimer": {
+          "default": "recommendation only, execute at the DBA's discretion",
+          "title": "Disclaimer",
+          "type": "string"
+        },
+        "remediation": {
+          "items": {
+            "$ref": "#/$defs/RemediationStep"
+          },
+          "title": "Remediation",
+          "type": "array"
+        },
+        "validation_checks": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Validation Checks",
+          "type": "array"
+        }
+      },
+      "required": [
+        "validation_checks",
+        "remediation"
+      ],
+      "title": "Recommendation",
+      "type": "object"
+    },
+    "RemediationStep": {
+      "description": "One remediation action for DBA review, with optional draft SQL.\n\n``draft_sql`` is a *review* artifact only: the tool recommends, it never\nexecutes (plan.md \u00a75/\u00a76). ``disclaimer`` is always present so the report and\ndashboard can render the read-only notice consistently.",
+      "properties": {
+        "disclaimer": {
+          "default": "recommendation only, execute at the DBA's discretion",
+          "title": "Disclaimer",
+          "type": "string"
+        },
+        "draft_sql": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Draft Sql"
+        },
+        "step": {
+          "title": "Step",
+          "type": "string"
+        }
+      },
+      "required": [
+        "step"
+      ],
+      "title": "RemediationStep",
+      "type": "object"
+    },
+    "Severity": {
+      "description": "The only severities the rules layer may emit.",
+      "enum": [
+        "high",
+        "medium",
+        "low"
+      ],
+      "title": "Severity",
+      "type": "string"
+    },
+    "Signal": {
+      "description": "One normalized rule signal, referencing evidence rows by emitted id.",
+      "properties": {
+        "area": {
+          "title": "Area",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "severity": {
+          "$ref": "#/$defs/Severity"
+        }
+      },
+      "required": [
+        "area",
+        "severity",
+        "description"
+      ],
+      "title": "Signal",
+      "type": "object"
+    },
+    "SourceStatus": {
+      "description": "Inventory state of one evidence source (one per catalog id).\n\n``collected`` is the only state that lets a summary claim a source was\nchecked. ``unavailable-connection`` covers an unreachable server/database;\n``unavailable-permission`` a denied login or query; ``unavailable-setting``\nany other server-side reason (version/setting). ``not-applicable`` is only\nset from a per-source applicability predicate.",
+      "enum": [
+        "collected",
+        "unavailable-permission",
+        "unavailable-connection",
+        "unavailable-setting",
+        "not-applicable"
+      ],
+      "title": "SourceStatus",
+      "type": "string"
+    }
+  },
+  "description": "The complete, validated, read-only report payload (plan.md \u00a78).\n\nEvery plan.md \u00a78 requirement is a required field with no default, so the\nmodel is the guarantee that assembly never silently omits one. ``Verdict``\nand ``Signal`` are embedded unchanged from #18/#17.",
+  "properties": {
+    "alternatives": {
+      "items": {
+        "$ref": "#/$defs/Cause"
+      },
+      "title": "Alternatives",
+      "type": "array"
+    },
+    "confidence_label": {
+      "$ref": "#/$defs/ConfidenceLabel"
+    },
+    "confidence_percent": {
+      "maximum": 100,
+      "minimum": 0,
+      "title": "Confidence Percent",
+      "type": "integer"
+    },
+    "coverage_gaps": {
+      "items": {
+        "$ref": "#/$defs/CoverageGap"
+      },
+      "title": "Coverage Gaps",
+      "type": "array"
+    },
+    "data_sources": {
+      "items": {
+        "$ref": "#/$defs/DataSourceReport"
+      },
+      "title": "Data Sources",
+      "type": "array"
+    },
+    "database_scope": {
+      "title": "Database Scope",
+      "type": "string"
+    },
+    "databases": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Databases",
+      "type": "array"
+    },
+    "findings_by_area": {
+      "items": {
+        "$ref": "#/$defs/AreaFindings"
+      },
+      "title": "Findings By Area",
+      "type": "array"
+    },
+    "inconclusive": {
+      "title": "Inconclusive",
+      "type": "boolean"
+    },
+    "investigation_id": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Investigation Id"
+    },
+    "investigation_time": {
+      "format": "date-time",
+      "title": "Investigation Time",
+      "type": "string"
+    },
+    "lookback_hours": {
+      "title": "Lookback Hours",
+      "type": "integer"
+    },
+    "organization": {
+      "title": "Organization",
+      "type": "string"
+    },
+    "primary_cause": {
+      "$ref": "#/$defs/Cause"
+    },
+    "rationale": {
+      "title": "Rationale",
+      "type": "string"
+    },
+    "read_only_disclaimer": {
+      "default": "recommendation only, execute at the DBA's discretion",
+      "title": "Read Only Disclaimer",
+      "type": "string"
+    },
+    "recommendations": {
+      "items": {
+        "$ref": "#/$defs/Recommendation"
+      },
+      "title": "Recommendations",
+      "type": "array"
+    },
+    "remediation": {
+      "items": {
+        "$ref": "#/$defs/RemediationStep"
+      },
+      "title": "Remediation",
+      "type": "array"
+    },
+    "server_host": {
+      "title": "Server Host",
+      "type": "string"
+    },
+    "server_port": {
+      "title": "Server Port",
+      "type": "integer"
+    },
+    "severity": {
+      "$ref": "#/$defs/Severity"
+    },
+    "validation_checks": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Validation Checks",
+      "type": "array"
+    }
+  },
+  "required": [
+    "organization",
+    "server_host",
+    "server_port",
+    "database_scope",
+    "databases",
+    "lookback_hours",
+    "investigation_time",
+    "data_sources",
+    "findings_by_area",
+    "primary_cause",
+    "alternatives",
+    "confidence_percent",
+    "confidence_label",
+    "severity",
+    "rationale",
+    "inconclusive",
+    "coverage_gaps",
+    "recommendations",
+    "validation_checks",
+    "remediation"
+  ],
+  "title": "ReportPayload",
+  "type": "object"
+}
