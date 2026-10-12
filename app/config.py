@@ -3,7 +3,7 @@
 import os
 from pathlib import Path
 
-from pydantic import AnyUrl, BaseModel, ValidationError, field_validator
+from pydantic import AnyUrl, BaseModel, Field, ValidationError, field_validator
 
 REQUIRED_ENV_NAMES = (
     "DATABASE_URL",
@@ -13,6 +13,17 @@ REQUIRED_ENV_NAMES = (
     "OIDC_CLIENT_SECRET",
     "LLM_ENDPOINT",
     "LLM_API_KEY",
+)
+
+#: Optional overrides for the arq background worker settings (#11). Each name
+#: is resolved to the ``Settings`` field of the same lowercase name and falls
+#: back to the field's default when absent.
+OPTIONAL_ENV_NAMES = (
+    "JOB_MAX_TRIES",
+    "JOB_TIMEOUT_SECONDS",
+    "WORKER_MAX_JOBS",
+    "WORKER_QUEUE_NAME",
+    "JOB_RETRY_JOBS",
 )
 
 SECRET_FIELDS = ("oidc_client_secret", "llm_api_key")
@@ -37,12 +48,18 @@ def _load_dotenv(path: Path = PROJECT_ROOT / ".env") -> dict[str, str]:
 
 
 def _resolved_values() -> dict[str, str]:
+    recognized = set(REQUIRED_ENV_NAMES) | set(OPTIONAL_ENV_NAMES) | {"LOG_LEVEL"}
     resolved: dict[str, str] = {}
     for key, value in _load_dotenv().items():
         name = key.upper()
-        if name in REQUIRED_ENV_NAMES or name == "LOG_LEVEL":
+        if name in recognized:
             resolved[name.lower()] = value
-    resolved.update({name.lower(): os.environ[name] for name in REQUIRED_ENV_NAMES if name in os.environ})
+    for name in REQUIRED_ENV_NAMES:
+        if name in os.environ:
+            resolved[name.lower()] = os.environ[name]
+    for name in OPTIONAL_ENV_NAMES:
+        if name in os.environ:
+            resolved[name.lower()] = os.environ[name]
     if "LOG_LEVEL" in os.environ:
         resolved["log_level"] = os.environ["LOG_LEVEL"]
     return resolved
@@ -57,12 +74,31 @@ class Settings(BaseModel):
     llm_endpoint: AnyUrl
     llm_api_key: str
     log_level: str = "info"
+    #: arq worker retry/timeout policy (#11), overridable via env.
+    job_max_tries: int = Field(default=3, ge=1)
+    job_timeout_seconds: int = Field(default=300, ge=1)
+    worker_max_jobs: int = Field(default=10, ge=1)
+    worker_queue_name: str = "arq:queue"
+    job_retry_jobs: bool = True
 
     @field_validator("oidc_issuer", "llm_endpoint")
     @classmethod
     def _must_be_http(cls, value: AnyUrl) -> AnyUrl:
         if value.scheme not in ("http", "https"):
             raise ValueError("must be an absolute http(s) URL")
+        return value
+
+    @field_validator("job_retry_jobs", mode="before")
+    @classmethod
+    def _parse_job_retry_bool(cls, value: object) -> object:
+        """Accept the usual env spellings for a boolean worker flag."""
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in ("1", "true", "yes", "on"):
+                return True
+            if normalized in ("0", "false", "no", "off"):
+                return False
+            raise ValueError(f"job_retry_jobs must be a boolean, got {value!r}")
         return value
 
     def public_dict(self) -> dict[str, str]:

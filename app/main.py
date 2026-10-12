@@ -8,6 +8,7 @@ from app import __version__
 from app.config import Settings, load_settings
 from app.diagnostics.catalog import load_catalog
 from app.investigations.router import router as investigations_router
+from app.jobs.router import router as jobs_router
 from app.logging_setup import configure_logging
 
 
@@ -21,6 +22,7 @@ def create_app(settings: Settings) -> FastAPI:
     app.state.catalog = catalog
 
     app.include_router(investigations_router)
+    app.include_router(jobs_router)
 
     @app.get("/health")
     def health() -> dict[str, str]:

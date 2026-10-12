@@ -97,6 +97,13 @@ class InvestigationRepository(Protocol):
     ) -> InvestigationRecord:
         """Persist and return a new investigation row."""
 
+    def update_status(self, investigation_id: int, status: str) -> InvestigationRecord | None:
+        """Move an investigation to a new run status (#11); None if unknown.
+
+        Called by the enqueue path (draft -> running) and the worker
+        (running -> succeeded/failed) so the investigation reflects its job.
+        """
+
 
 def _to_record(model: Investigation) -> InvestigationRecord:
     return InvestigationRecord(
@@ -161,6 +168,15 @@ class SqlAlchemyInvestigationRepository:
             session.flush()
             return _to_record(model)
 
+    def update_status(self, investigation_id: int, status: str) -> InvestigationRecord | None:
+        with self._session_factory() as session:
+            model = session.get(Investigation, investigation_id)
+            if model is None:
+                return None
+            model.status = status
+            session.flush()
+            return _to_record(model)
+
 
 class InMemoryInvestigationRepository:
     """In-memory repository for unit tests (no SQL Server required)."""
@@ -185,6 +201,15 @@ class InMemoryInvestigationRepository:
             if row.id == investigation_id:
                 self.rows[index] = replace(row, status=status)
                 return
+
+    def update_status(self, investigation_id: int, status: str) -> InvestigationRecord | None:
+        """Move the investigation to a new run status; None if it is unknown."""
+        for index, row in enumerate(self.rows):
+            if row.id == investigation_id:
+                updated = replace(row, status=status)
+                self.rows[index] = updated
+                return updated
+        return None
 
     def create_investigation(
         self,

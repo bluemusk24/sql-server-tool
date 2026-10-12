@@ -109,3 +109,35 @@ def test_settings_public_dict_excludes_secrets(monkeypatch, clear_settings_env):
     assert "oidc_client_secret" not in public
     assert "llm_api_key" not in public
     assert public["oidc_issuer"] == VALID_ENV["OIDC_ISSUER"]
+
+
+def test_worker_settings_have_configurable_defaults(monkeypatch, clear_settings_env):
+    _set_all(monkeypatch, VALID_ENV)
+    settings = load_settings()
+    assert settings.job_max_tries == 3
+    assert settings.job_timeout_seconds == 300
+    assert settings.worker_max_jobs == 10
+    assert settings.worker_queue_name == "arq:queue"
+    assert settings.job_retry_jobs is True
+
+
+def test_worker_settings_read_from_env(monkeypatch, clear_settings_env):
+    _set_all(monkeypatch, VALID_ENV)
+    monkeypatch.setenv("JOB_MAX_TRIES", "5")
+    monkeypatch.setenv("JOB_TIMEOUT_SECONDS", "60")
+    monkeypatch.setenv("WORKER_MAX_JOBS", "2")
+    monkeypatch.setenv("WORKER_QUEUE_NAME", "custom:queue")
+    monkeypatch.setenv("JOB_RETRY_JOBS", "false")
+    settings = load_settings()
+    assert settings.job_max_tries == 5
+    assert settings.job_timeout_seconds == 60
+    assert settings.worker_max_jobs == 2
+    assert settings.worker_queue_name == "custom:queue"
+    assert settings.job_retry_jobs is False
+
+
+def test_job_retry_jobs_rejects_non_boolean(monkeypatch, clear_settings_env):
+    _set_all(monkeypatch, VALID_ENV)
+    monkeypatch.setenv("JOB_RETRY_JOBS", "sometimes")
+    with pytest.raises(RuntimeError, match="job_retry_jobs"):
+        load_settings()
