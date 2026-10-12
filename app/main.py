@@ -10,6 +10,8 @@ from app.diagnostics.catalog import load_catalog
 from app.investigations.router import router as investigations_router
 from app.jobs.router import router as jobs_router
 from app.logging_setup import configure_logging
+from app.persistence import SqlAlchemyAuditWriter
+from app.report.repository import SqlAlchemyReportRepository
 from app.report.router import router as reports_router
 
 
@@ -21,6 +23,9 @@ def create_app(settings: Settings) -> FastAPI:
     # Explicit, fail-fast load of the read-only catalog (no import-time I/O).
     catalog = load_catalog()
     app.state.catalog = catalog
+    # Wire default persistent implementations for #21 (overridable in tests)
+    app.state.audit_writer = SqlAlchemyAuditWriter()
+    app.state.report_repository = SqlAlchemyReportRepository()
 
     app.include_router(investigations_router)
     app.include_router(jobs_router)

@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from fastapi import Request
 
-from app.report.repository import InMemoryReportRepository, ReportRepository
+from app.report.repository import (
+    ReportRepository,
+    SqlAlchemyReportRepository,
+)
 
 
 def get_report_repository(request: Request) -> ReportRepository:
@@ -15,6 +18,6 @@ def get_report_repository(request: Request) -> ReportRepository:
     """
     repository = getattr(request.app.state, "report_repository", None)
     if repository is None:
-        repository = InMemoryReportRepository()
+        repository = SqlAlchemyReportRepository()
         request.app.state.report_repository = repository
     return repository

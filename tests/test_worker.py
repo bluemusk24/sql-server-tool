@@ -25,6 +25,7 @@ from app.investigations.repository import (
 )
 from app.investigations.service import required_catalog_ids
 from app.jobs.queue import task_path
+from app.persistence import CleanupReport
 from app.sql.connector import Row
 
 VALID_ENV = {
@@ -102,7 +103,11 @@ def test_make_worker_settings_reflects_settings(worker):
     settings = _settings(job_max_tries=4, job_timeout_seconds=45, worker_max_jobs=3)
     built = worker.make_worker_settings(settings)
 
-    assert built["functions"] == [worker.example_task, worker.diagnostic_run]
+    assert built["functions"] == [
+        worker.example_task,
+        worker.diagnostic_run,
+        worker.retention_cleanup,
+    ]
     assert built["max_tries"] == 4
     assert built["job_timeout"] == 45
     assert built["max_jobs"] == 3
@@ -111,6 +116,31 @@ def test_make_worker_settings_reflects_settings(worker):
     assert built["redis_settings"].host == "localhost"
     assert built["redis_settings"].port == 6379
     assert built["redis_settings"].database == 0
+
+
+def test_retention_cleanup_task_delegates_to_the_persistence_repository(
+    worker,
+):
+    class FakePersistence:
+        def __init__(self) -> None:
+            self.cleaned_up = False
+
+        def cleanup(self, *, now=None):
+            self.cleaned_up = True
+            return CleanupReport(
+                deleted={"evidence_run": 1, "finding": 1, "audit": 1}
+            )
+
+    fake = FakePersistence()
+    result = asyncio.run(
+        worker.retention_cleanup({"persistence_repository": fake})
+    )
+
+    assert fake.cleaned_up is True
+    assert result == {
+        "deleted": {"evidence_run": 1, "finding": 1, "audit": 1},
+        "total": 3,
+    }
 
 
 def test_worker_settings_pass_retry_and_backoff_policy(worker):

@@ -70,4 +70,9 @@ def get_approval_repository(request: Request) -> ApprovalRepository:
 
 def get_audit_writer(request: Request) -> AuditWriter:
     """Return the audit writer; defaults to the deferring no-op (#21)."""
-    return getattr(request.app.state, "audit_writer", None) or NullAuditWriter()
+    writer = getattr(request.app.state, "audit_writer", None)
+    if writer is None:
+        return NullAuditWriter()
+    if writer is ... or writer is False:
+        return NullAuditWriter()
+    return writer

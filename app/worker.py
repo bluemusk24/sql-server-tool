@@ -26,9 +26,17 @@ from app.diagnostics.catalog import Catalog, load_catalog
 from app.execution import Connector, run_diagnostic
 from app.investigations.repository import (
     ApprovalRepository,
+    AuditEntry,
+    AuditWriter,
     InvestigationRepository,
+    NullAuditWriter,
     SqlAlchemyApprovalRepository,
     SqlAlchemyInvestigationRepository,
+)
+from app.persistence import (
+    PersistenceRepository,
+    SqlAlchemyAuditWriter,
+    SqlAlchemyPersistenceRepository,
 )
 
 #: Result returned by :func:`example_task`; the Redis-backed test asserts it.
@@ -41,6 +49,7 @@ __all__ = [
     "diagnostic_run",
     "example_task",
     "make_worker_settings",
+    "retention_cleanup",
 ]
 
 
@@ -71,6 +80,8 @@ async def diagnostic_run(ctx: dict[str, Any], investigation_id: int) -> dict[str
     approval_repository: ApprovalRepository = ctx["approval_repository"]
     catalog: Catalog = ctx["catalog"]
     connector: Connector | None = ctx.get("connector")
+    audit_writer: AuditWriter = ctx.get("audit_writer") or NullAuditWriter()
+    persistence: PersistenceRepository | None = ctx.get("persistence_repository")
 
     try:
         _require_credentials(credential_store, investigation_id)
@@ -83,10 +94,52 @@ async def diagnostic_run(ctx: dict[str, Any], investigation_id: int) -> dict[str
             connector=connector,
         )
         repository.update_status(investigation_id, "succeeded")
+        try:
+            audit_writer.write(
+                AuditEntry(
+                    organization_id=0,
+                    actor="system",
+                    action="run.complete",
+                    target=f"investigation:{investigation_id}",
+                )
+            )
+        except Exception:  # pragma: no cover - best effort  # noqa: BLE001, S110
+            pass
+        # Persist evidence if repository is available
+        if persistence is not None:
+            try:
+                for ev in getattr(result, "evidence", []) or []:
+                    persistence.record_evidence_run(investigation_id, ev)
+                for sig in getattr(result, "signals", []) or []:
+                    persistence.record_finding(investigation_id, sig)
+                if getattr(result, "verdict", None) is not None:
+                    persistence.record_verdict(
+                        investigation_id, result.verdict
+                    )
+            except Exception:  # pragma: no cover - persistence failures shouldn't break run  # noqa: BLE001, S110
+                pass
         return result.model_dump()
     except Exception:
         repository.update_status(investigation_id, "failed")
+        try:
+            audit_writer.write(
+                AuditEntry(
+                    organization_id=0,
+                    actor="system",
+                    action="run.fail",
+                    target=f"investigation:{investigation_id}",
+                )
+            )
+        except Exception:  # pragma: no cover  # noqa: BLE001, S110
+            pass
         raise
+
+
+async def retention_cleanup(ctx: dict[str, Any]) -> dict[str, Any]:
+    """Remove rows older than the retention window from all five tables (#21)."""
+    persistence: PersistenceRepository = ctx.get("persistence_repository") or SqlAlchemyPersistenceRepository()
+    report = persistence.cleanup()
+    return {"deleted": report.deleted, "total": report.total}
 
 
 def _require_credentials(credential_store: CredentialStore, investigation_id: int) -> SqlCredentials:
@@ -112,6 +165,8 @@ def make_worker_settings(
     approval_repository: ApprovalRepository | None = None,
     catalog: Catalog | None = None,
     connector: Connector | None = None,
+    audit_writer: AuditWriter | None = None,
+    persistence_repository: PersistenceRepository | None = None,
 ) -> dict[str, Any]:
     """Build the arq worker settings for ``settings`` (config-driven).
 
@@ -120,7 +175,7 @@ def make_worker_settings(
     implementations (the connector defaults to the #6 module inside the engine).
     """
     return {
-        "functions": [example_task, diagnostic_run],
+        "functions": [example_task, diagnostic_run, retention_cleanup],
         "redis_settings": RedisSettings.from_dsn(settings.redis_url),
         "queue_name": settings.worker_queue_name,
         "max_jobs": settings.worker_max_jobs,
@@ -143,6 +198,10 @@ def make_worker_settings(
             ),
             "catalog": load_catalog() if catalog is None else catalog,
             "connector": connector,
+            "audit_writer": audit_writer
+            or SqlAlchemyAuditWriter(),
+            "persistence_repository": persistence_repository
+            or SqlAlchemyPersistenceRepository(),
         },
     }
 

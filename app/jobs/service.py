@@ -12,8 +12,11 @@ from __future__ import annotations
 from app.diagnostics.catalog import Catalog
 from app.investigations.repository import (
     ApprovalRepository,
+    AuditEntry,
+    AuditWriter,
     InvestigationRecord,
     InvestigationRepository,
+    NullAuditWriter,
 )
 from app.investigations.service import UnknownInvestigation, can_start
 from app.jobs.queue import JobQueue, QueuedJob
@@ -69,10 +72,12 @@ def require_startable(
 async def start_run(
     investigation_id: int,
     *,
+    caller_actor: str = "system",
     investigation_repository: InvestigationRepository,
     approval_repository: ApprovalRepository,
     catalog: Catalog,
     job_queue: JobQueue,
+    audit_writer: AuditWriter | None = None,
 ) -> QueuedJob:
     """Enqueue a diagnostic run for an approved investigation.
 
@@ -80,7 +85,7 @@ async def start_run(
     investigation moves to ``running`` only after the enqueue succeeds, so a
     failed enqueue leaves it startable.
     """
-    require_startable(
+    investigation = require_startable(
         investigation_id,
         investigation_repository=investigation_repository,
         approval_repository=approval_repository,
@@ -88,6 +93,15 @@ async def start_run(
     )
     queued = await job_queue.enqueue_job(diagnostic_run, investigation_id)
     investigation_repository.update_status(investigation_id, RUNNING_STATUS)
+    writer = audit_writer or NullAuditWriter()
+    writer.write(
+        AuditEntry(
+            organization_id=investigation.organization_id,
+            actor=caller_actor,
+            action="run.start",
+            target=f"investigation:{investigation_id}",
+        )
+    )
     return queued
 
 

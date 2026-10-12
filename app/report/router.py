@@ -15,6 +15,8 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import Response
 
+from app.investigations.dependencies import get_audit_writer, get_caller
+from app.investigations.repository import AuditEntry, AuditWriter
 from app.report.dependencies import get_report_repository
 from app.report.pdf import PdfRenderError, render, report_filename
 from app.report.repository import ReportRepository
@@ -30,7 +32,9 @@ RENDER_FAILED_DETAIL = "the report could not be rendered"
 @router.get("/{investigation_id}.pdf")
 def download_report_pdf(
     investigation_id: int,
-    repository: Annotated[ReportRepository, Depends(get_report_repository)],
+    caller: Annotated[object, Depends(get_caller)] = ...,
+    repository: Annotated[ReportRepository, Depends(get_report_repository)] = ...,
+    audit_writer: Annotated[AuditWriter, Depends(get_audit_writer)] = ...,
 ) -> Response:
     """Return the investigation's report as a downloadable PDF."""
     payload = repository.get_payload(investigation_id)
@@ -39,6 +43,19 @@ def download_report_pdf(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"no report for investigation {investigation_id}",
         )
+
+    # Best-effort audit (do not block report access on audit failures)
+    try:
+        audit_writer.write(
+            AuditEntry(
+                organization_id=0,  # org is implicit per DB; tests may ignore
+                actor=getattr(caller, "actor", "system"),
+                action="report.access",
+                target=f"investigation:{investigation_id}/report",
+            )
+        )
+    except Exception:  # pragma: no cover - audit must not block response  # noqa: BLE001, S110
+        pass
 
     try:
         pdf = render(payload)

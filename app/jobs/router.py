@@ -15,11 +15,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from app.diagnostics.catalog import Catalog
 from app.investigations.dependencies import (
     get_approval_repository,
+    get_audit_writer,
+    get_caller,
     get_catalog,
     get_investigation_repository,
 )
 from app.investigations.repository import (
     ApprovalRepository,
+    AuditWriter,
     InvestigationRepository,
 )
 from app.investigations.service import UnknownInvestigation
@@ -42,6 +45,7 @@ router = APIRouter(tags=["jobs"])
 )
 async def start_run_endpoint(
     investigation_id: int,
+    caller: Annotated[object, Depends(get_caller)],
     investigation_repository: Annotated[
         InvestigationRepository, Depends(get_investigation_repository)
     ],
@@ -50,15 +54,18 @@ async def start_run_endpoint(
     ],
     catalog: Annotated[Catalog, Depends(get_catalog)],
     job_queue: Annotated[JobQueue, Depends(get_job_queue)],
+    audit_writer: Annotated[AuditWriter, Depends(get_audit_writer)],
 ) -> dict[str, str]:
     """Enqueue a diagnostic run for an approved investigation (202 + job id)."""
     try:
         queued = await start_run(
             investigation_id,
+            caller_actor=getattr(caller, "actor", "system"),
             investigation_repository=investigation_repository,
             approval_repository=approval_repository,
             catalog=catalog,
             job_queue=job_queue,
+            audit_writer=audit_writer,
         )
     except UnknownInvestigation as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
