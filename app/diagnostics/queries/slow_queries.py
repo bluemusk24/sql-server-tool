@@ -7,22 +7,23 @@ QUERIES = (
         id="top_elapsed_queries",
         title="Top resource-consuming queries",
         description=(
-            "The 100 most expensive completed queries by total elapsed time in the "
-            "lookback window, with the SQL text, so the DBA can spot the slowest "
-            "resource consumers regardless of runtime."
+            "Completed queries in the lookback window with their cumulative CPU, "
+            "elapsed, logical-read, and logical-write totals plus the SQL text; the "
+            "#14 collector ranks the top five per resource category regardless of "
+            "runtime, so no query is dropped for being fast."
         ),
         category="queries",
         issue_area="queries",
         sql=(
-            "SELECT TOP (100) qs.total_elapsed_time,\n"
+            "SELECT qs.total_worker_time,\n"
+            "       qs.total_elapsed_time,\n"
             "       qs.total_logical_reads,\n"
-            "       qs.total_worker_time,\n"
+            "       qs.total_logical_writes,\n"
             "       qs.execution_count,\n"
             "       st.text AS sql_text\n"
             "FROM sys.dm_exec_query_stats AS qs\n"
             "CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) AS st\n"
-            "WHERE qs.last_execution_time >= DATEADD(hour, ?, SYSDATETIME())\n"
-            "ORDER BY qs.total_elapsed_time DESC"
+            "WHERE qs.last_execution_time >= DATEADD(hour, ?, SYSDATETIME())"
         ),
         params=("lookback_hours",),
         requires_approval=True,
