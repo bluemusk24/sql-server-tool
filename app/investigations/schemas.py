@@ -14,6 +14,7 @@ credential store keyed by investigation id (#5).
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from enum import Enum
 from typing import Any
 
@@ -100,3 +101,75 @@ class InvestigationResponse(BaseModel):
     id: int
     status: str
     catalog: list[dict[str, Any]]
+
+
+class Decision(str, Enum):
+    """A DBA's decision on one catalog query."""
+
+    approved = "approved"
+    rejected = "rejected"
+
+
+class ApprovalState(str, Enum):
+    """Computed approval state of an investigation (the only three states)."""
+
+    pending = "pending"
+    approved = "approved"
+    rejected = "rejected"
+
+
+#: Longest note accepted on a decision; matches the ``note`` column width.
+MAX_NOTE_LENGTH = 1024
+
+
+class ApprovalRequest(BaseModel):
+    """A batch of per-query decisions plus one optional note.
+
+    ``decisions`` maps catalog ids to ``approved``/``rejected`` and must name at
+    least one query. Unknown fields (including any credential) are rejected, so
+    a password can never be sent here.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    decisions: dict[str, Decision]
+    note: str | None = None
+
+    @field_validator("decisions")
+    @classmethod
+    def _require_at_least_one(cls, value: dict[str, Decision]) -> dict[str, Decision]:
+        if not value:
+            raise ValueError("decisions must name at least one catalog id")
+        return value
+
+    @field_validator("note")
+    @classmethod
+    def _validate_note(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        note = value.strip()
+        if not note:
+            return None
+        if len(note) > MAX_NOTE_LENGTH:
+            raise ValueError(
+                f"note must be at most {MAX_NOTE_LENGTH} characters"
+            )
+        return note
+
+
+class ApprovalQuery(BaseModel):
+    """The latest decision on one catalog query, or ``null`` when undecided."""
+
+    catalog_id: str
+    decision: Decision | None
+    actor: str | None
+    note: str | None
+    created_at: datetime | None
+
+
+class ApprovalResponse(BaseModel):
+    """Per-query decisions plus the computed investigation approval state."""
+
+    investigation_id: int
+    state: ApprovalState
+    queries: list[ApprovalQuery]

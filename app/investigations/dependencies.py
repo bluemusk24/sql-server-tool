@@ -15,9 +15,11 @@ from fastapi import Request
 
 from app.diagnostics.catalog import Catalog
 from app.investigations.repository import (
+    ApprovalRepository,
     AuditWriter,
     InvestigationRepository,
     NullAuditWriter,
+    SqlAlchemyApprovalRepository,
     SqlAlchemyInvestigationRepository,
 )
 
@@ -54,6 +56,15 @@ def get_investigation_repository(request: Request) -> InvestigationRepository:
     if repository is None:
         repository = SqlAlchemyInvestigationRepository()
         request.app.state.investigation_repository = repository
+    return repository
+
+
+def get_approval_repository(request: Request) -> ApprovalRepository:
+    """Return the approval repository, created once per app and cached."""
+    repository = getattr(request.app.state, "approval_repository", None)
+    if repository is None:
+        repository = SqlAlchemyApprovalRepository()
+        request.app.state.approval_repository = repository
     return repository
 
 

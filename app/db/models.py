@@ -25,6 +25,7 @@ from sqlalchemy import (
     Index,
     Integer,
     Unicode,
+    event,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -36,6 +37,10 @@ def _utcnow() -> datetime:
 
 class Base(DeclarativeBase):
     """Declarative base shared by every repository model."""
+
+
+class AppendOnlyViolation(RuntimeError):
+    """Raised when code tries to mutate an append-only row after insert."""
 
 
 class Organization(Base):
@@ -107,3 +112,53 @@ class Investigation(Base):
             f"Investigation(id={self.id!r}, organization_id={self.organization_id!r}, "
             f"status={self.status!r})"
         )
+
+
+class Approval(Base):
+    """One DBA decision on one catalog query for one investigation.
+
+    Rows are *append-only*: a decision change is a new row, never an update, so
+    the #21 audit trail keeps every decision in order. The model enforces this
+    with ``before_update``/``before_delete`` listeners (see below) so the rule
+    cannot be bypassed by ORM code.
+    """
+
+    __tablename__ = "approval"
+    __table_args__ = (
+        CheckConstraint(
+            "decision IN ('approved', 'rejected')", name="ck_approval_decision"
+        ),
+        Index("ix_approval_investigation_id", "investigation_id"),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger,
+        Identity(start=1, increment=1),
+        primary_key=True,
+    )
+    investigation_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    catalog_id: Mapped[str] = mapped_column(Unicode(128), nullable=False)
+    decision: Mapped[str] = mapped_column(Unicode(16), nullable=False)
+    actor: Mapped[str] = mapped_column(Unicode(255), nullable=False)
+    note: Mapped[str | None] = mapped_column(Unicode(1024), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"Approval(id={self.id!r}, investigation_id={self.investigation_id!r}, "
+            f"catalog_id={self.catalog_id!r}, decision={self.decision!r})"
+        )
+
+
+@event.listens_for(Approval, "before_update")
+def _prevent_approval_update(mapper: object, connection: object, target: Approval) -> None:
+    """Reject updates: the approval trail is append-only."""
+    raise AppendOnlyViolation("approval rows are append-only and cannot be updated")
+
+
+@event.listens_for(Approval, "before_delete")
+def _prevent_approval_delete(mapper: object, connection: object, target: Approval) -> None:
+    """Reject deletes: the approval trail is append-only."""
+    raise AppendOnlyViolation("approval rows are append-only and cannot be deleted")
