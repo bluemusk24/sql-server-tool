@@ -12,6 +12,8 @@ from app.report.assembly import (
     collect_evidence,
     collect_signals,
 )
+from app.report.pdf import render, render_html, report_filename
+from app.report.repository import InMemoryReportRepository, ReportRepository
 from app.report.schemas import (
     READ_ONLY_DISCLAIMER,
     AreaFindings,
@@ -32,12 +34,17 @@ __all__ = [
     "CoverageGap",
     "DataSourceReport",
     "EvidenceItem",
+    "InMemoryReportRepository",
     "InvestigationContext",
     "Recommendation",
     "RemediationStep",
     "ReportPayload",
+    "ReportRepository",
     "assemble",
     "build_report",
     "collect_evidence",
     "collect_signals",
+    "render",
+    "render_html",
+    "report_filename",
 ]

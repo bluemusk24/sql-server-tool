@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{{title}}</title>
+  <style>
+    @page { size: A4; margin: 16mm 14mm; }
+    body {
+      font-family: "DejaVu Sans", "Liberation Sans", Arial, sans-serif;
+      font-size: 10pt;
+      line-height: 1.35;
+      color: #111111;
+      overflow-wrap: anywhere;
+    }
+    h1 { font-size: 18pt; margin: 0 0 4px; }
+    h2 { font-size: 13pt; margin: 16px 0 6px; border-bottom: 1px solid #999; padding-bottom: 2px; }
+    h3 { font-size: 11pt; margin: 10px 0 4px; }
+    .meta { color: #444444; font-size: 9pt; margin: 0 0 10px; }
+    .disclaimer {
+      border: 1.5px solid #333333;
+      background: #f1f1f1;
+      padding: 6px 8px;
+      margin: 0 0 12px;
+      font-weight: bold;
+    }
+    dl { margin: 0 0 8px; }
+    dt { font-weight: bold; float: left; clear: left; width: 150px; }
+    dd { margin: 0 0 2px 160px; }
+    table { width: 100%; border-collapse: collapse; margin: 4px 0 12px; }
+    th, td { border: 1px solid #999999; padding: 3px 5px; text-align: left; vertical-align: top; }
+    th { background: #eeeeee; }
+    ul { margin: 4px 0 10px 18px; padding: 0; }
+    li { margin: 0 0 3px; }
+    .empty { color: #666666; font-style: italic; }
+    .evidence {
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      margin: 2px 0 6px;
+    }
+    .evidence .when { color: #555555; font-size: 8.5pt; }
+    pre.sql {
+      font-family: "DejaVu Sans Mono", "Liberation Mono", monospace;
+      font-size: 8.5pt;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      background: #f7f7f7;
+      border: 1px solid #cccccc;
+      padding: 6px;
+      margin: 4px 0 10px;
+    }
+    .severity-high { color: #a30000; font-weight: bold; }
+    .severity-medium { color: #8a5a00; font-weight: bold; }
+    .severity-low { color: #14611a; }
+    .severity-none { color: #666666; }
+  </style>
+</head>
+<body>
+  <h1>SQL Server Incident Report</h1>
+  <p class="meta">Investigation #{{investigation_id}} &middot; {{timestamp}}</p>
+
+  <p class="disclaimer">{{disclaimer}}</p>
+
+  <section id="identity">
+    <h2>Identity and scope</h2>
+    <dl>
+      <dt>Organization</dt><dd>{{organization}}</dd>
+      <dt>Server</dt><dd>{{server}}</dd>
+      <dt>Scope</dt><dd>{{scope}}</dd>
+      <dt>Databases</dt><dd>{{databases}}</dd>
+      <dt>Lookback</dt><dd>{{lookback}}</dd>
+      <dt>Confidence</dt><dd>{{confidence}}</dd>
+      <dt>Severity</dt><dd class="severity-{{severity}}">{{severity}}</dd>
+    </dl>
+  </section>
+
+  <section id="sources">
+    <h2>Data sources checked</h2>
+    {{sources_table}}
+  </section>
+
+  <section id="findings">
+    <h2>Findings by area</h2>
+    {{findings_table}}
+    {{findings_detail}}
+  </section>
+
+  <section id="causes">
+    <h2>Probable cause</h2>
+    {{causes}}
+  </section>
+
+  <section id="gaps">
+    <h2>Coverage gaps</h2>
+    {{gaps}}
+  </section>
+
+  <section id="recommendations">
+    <h2>Recommended validation and remediation</h2>
+    {{recommendations}}
+  </section>
+</body>
+</html>
