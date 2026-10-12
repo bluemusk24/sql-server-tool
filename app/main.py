@@ -7,6 +7,7 @@ from fastapi import FastAPI, HTTPException
 from app import __version__
 from app.config import Settings, load_settings
 from app.diagnostics.catalog import load_catalog
+from app.investigations.router import router as investigations_router
 from app.logging_setup import configure_logging
 
 
@@ -18,6 +19,8 @@ def create_app(settings: Settings) -> FastAPI:
     # Explicit, fail-fast load of the read-only catalog (no import-time I/O).
     catalog = load_catalog()
     app.state.catalog = catalog
+
+    app.include_router(investigations_router)
 
     @app.get("/health")
     def health() -> dict[str, str]:

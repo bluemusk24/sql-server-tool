@@ -29,6 +29,7 @@ from app.config import load_settings
 
 ALEMBIC_OWN_TABLE = "alembic_version"
 ORGANIZATION_TABLE = "organization"
+INVESTIGATION_TABLE = "investigation"
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 ALEMBIC_INI = PROJECT_ROOT / "alembic.ini"
 
@@ -109,7 +110,11 @@ def test_upgrade_head_then_downgrade_base(throwaway_database):
     command.upgrade(config, "head")
 
     after_upgrade = _base_table_names(target_engine)
-    assert after_upgrade == {ALEMBIC_OWN_TABLE, ORGANIZATION_TABLE}
+    assert after_upgrade == {
+        ALEMBIC_OWN_TABLE,
+        ORGANIZATION_TABLE,
+        INVESTIGATION_TABLE,
+    }
 
     command.downgrade(config, "base")
 
