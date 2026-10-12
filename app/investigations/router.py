@@ -141,3 +141,14 @@ def get_approvals_endpoint(
         approval_repository=approval_repository,
         catalog=catalog,
     )
+@router.get("/investigations", status_code=status.HTTP_200_OK)
+@router.get("/investigations", status_code=status.HTTP_200_OK)
+    def list_investigations(
+        repository: Annotated[InvestigationRepository, Depends(get_investigation_repository)],
+    ) -> list[dict[str, int | str]]:
+        """Return a list of existing investigations for the dashboard."""
+        return [
+            {"id": rec.id, "status": rec.status}
+            for rec in repository.list_investigations()
+        ]
+

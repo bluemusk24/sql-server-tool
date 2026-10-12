@@ -43,13 +43,15 @@ export interface CatalogEntry {
   read_only: boolean;
 }
 
+import type { LookbackHours } from "./lookback";
+
 /** POST /investigations request (#9). */
 export interface CreateInvestigationRequest {
   server_host: string;
   server_port?: number;
   auth_type: "sql" | "ad";
   databases?: string[] | null;
-  lookback_hours: 1 | 4 | 8 | 24;
+  lookback_hours: LookbackHours;
 }
 
 /** POST /investigations response (#9). */

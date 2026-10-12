@@ -59,3 +59,10 @@ button:disabled {
 [role="alert"] {
   color: #8a1f1f;
 }
+
+.sql {
+  background: #f0f0f0;
+  padding: 1rem;
+  border-radius: 0.375rem;
+  overflow: auto;
+}

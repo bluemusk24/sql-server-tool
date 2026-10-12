@@ -104,6 +104,9 @@ class InvestigationRepository(Protocol):
         (running -> succeeded/failed) so the investigation reflects its job.
         """
 
+    def list_investigations(self) -> list[InvestigationRecord]:
+        """Return all investigations, newest first (dashboard list)."""
+
 
 def _to_record(model: Investigation) -> InvestigationRecord:
     return InvestigationRecord(
@@ -167,6 +170,12 @@ class SqlAlchemyInvestigationRepository:
             session.add(model)
             session.flush()
             return _to_record(model)
+
+    def list_investigations(self) -> list[InvestigationRecord]:
+        """Return all investigations, newest first (dashboard list)."""
+        with self._session_factory() as session:
+            statement = select(Investigation).order_by(Investigation.id.desc())
+            return [_to_record(m) for m in session.execute(statement).scalars()]
 
     def update_status(self, investigation_id: int, status: str) -> InvestigationRecord | None:
         with self._session_factory() as session:
@@ -238,6 +247,10 @@ class InMemoryInvestigationRepository:
         self._next_id += 1
         self.rows.append(record)
         return record
+
+    def list_investigations(self) -> list[InvestigationRecord]:
+        """Return all investigations, newest first (dashboard list)."""
+        return list(reversed(self.rows))
 
 
 class RecordingAuditWriter:

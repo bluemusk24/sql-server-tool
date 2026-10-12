@@ -19,14 +19,19 @@ import type {
   Session,
 } from "./types";
 
-/** A non-2xx response, carrying the HTTP status for callers to branch on. */
+/**
+ * A non-2xx response, carrying the HTTP status and the
+ * parsed body so callers can map validation errors to fields.
+ */
 export class ApiError extends Error {
   readonly status: number;
+  readonly body: unknown;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, body?: unknown) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.body = body;
   }
 }
 
@@ -50,16 +55,33 @@ function isAbortError(error: unknown): boolean {
   );
 }
 
-async function readErrorDetail(response: Response): Promise<string> {
+/**
+ * Read a non-2xx response's message and body.
+ *
+ * FastAPI returns `{"detail": ...}`; the detail is a string
+ * for endpoint-raised errors and an array of field errors for
+ * `422` validation failures.
+ */
+async function readError(
+  response: Response,
+): Promise<{ message: string; body: unknown }> {
+  let body: unknown;
   try {
-    const body = (await response.json()) as { detail?: unknown };
-    if (typeof body?.detail === "string") {
-      return body.detail;
-    }
+    body = await response.json();
   } catch {
-    // A non-JSON error body: fall back to the status text.
+    body = undefined;
   }
-  return response.statusText;
+  if (
+    typeof body === "object" &&
+    body !== null &&
+    "detail" in body
+  ) {
+    const detail = (body as { detail?: unknown }).detail;
+    if (typeof detail === "string") {
+      return { message: detail, body };
+    }
+  }
+  return { message: response.statusText, body };
 }
 
 async function request<T>(
@@ -80,7 +102,8 @@ async function request<T>(
       },
     });
     if (!response.ok) {
-      throw new ApiError(response.status, await readErrorDetail(response));
+      const { message, body } = await readError(response);
+      throw new ApiError(response.status, message, body);
     }
     return (await response.json()) as T;
   } catch (error) {
@@ -133,6 +156,10 @@ export function recordDecisions(
 }
 
 /** POST /investigations/{id}/run — enqueue the diagnostic run (#11). */
+export function getInvestigation(id: number): Promise<InvestigationResponse> {
+  return request<InvestigationResponse>(`/investigations/${id}`);
+}
+
 export function startRun(investigationId: number): Promise<RunAccepted> {
   return request<RunAccepted>(`/investigations/${investigationId}/run`, {
     method: "POST",
@@ -163,10 +190,8 @@ export async function downloadReport(
       },
     );
     if (!response.ok) {
-      throw new ApiError(
-        response.status,
-        await readErrorDetail(response),
-      );
+      const { message, body } = await readError(response);
+      throw new ApiError(response.status, message, body);
     }
     return await response.blob();
   } catch (error) {
