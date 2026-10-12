@@ -292,6 +292,7 @@ def query(
     conn: Connection,
     sql: str,
     *,
+    params: Sequence[object] | None = None,
     allow_write: bool = False,
     timeout: int | None = None,
 ) -> list[Row]:
@@ -300,6 +301,11 @@ def query(
     Only ``SELECT`` statements are allowed unless ``allow_write=True`` is
     passed explicitly (the diagnostics engine never does). ``timeout``
     overrides the connection's default query timeout for this call only.
+
+    ``params`` binds the catalog's positional ``?`` placeholders (an ordered
+    sequence); values are passed straight to the driver, never interpolated
+    into the SQL text. Passing ``None`` or an empty sequence leaves the
+    statement unparameterised.
     """
     if not _SELECT_PREFIX.match(sql) and not allow_write:
         raise ReadOnlyViolation(
@@ -309,7 +315,10 @@ def query(
     cursor = conn._driver.cursor()
     try:
         cursor.timeout = conn.query_timeout if timeout is None else timeout
-        cursor.execute(sql)
+        if params:
+            cursor.execute(sql, params)
+        else:
+            cursor.execute(sql)
         description = cursor.description or ()
         fields = tuple(column[0] for column in description)
         rows = [Row(fields, values) for values in cursor.fetchall()]

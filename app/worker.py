@@ -22,8 +22,12 @@ from arq.connections import RedisSettings
 
 from app.config import Settings, load_settings
 from app.credentials import CredentialStore, SqlCredentials
+from app.diagnostics.catalog import Catalog, load_catalog
+from app.execution import Connector, run_diagnostic
 from app.investigations.repository import (
+    ApprovalRepository,
     InvestigationRepository,
+    SqlAlchemyApprovalRepository,
     SqlAlchemyInvestigationRepository,
 )
 
@@ -54,20 +58,32 @@ class TaskCredentialsMissing(RuntimeError):
 async def diagnostic_run(ctx: dict[str, Any], investigation_id: int) -> dict[str, Any]:
     """Execute the approved diagnostic batch for ``investigation_id``.
 
-    Stub until #12 fills in the catalog execution. The job payload carries only
-    the investigation id; credentials stay session-only and are never queued.
-    The worker fetches them from the in-memory credential store (or receives
-    them out-of-band), failing with a clear status when they are missing, and
-    reflects the terminal job state on the investigation row.
+    The job payload carries only the investigation id; credentials stay
+    session-only and are never queued. The worker fetches them from the
+    in-memory credential store (#5), fails fast when they are missing, and
+    delegates the run to the #12 engine (:func:`app.execution.run_diagnostic`),
+    which enforces the #10 approval gate itself. The investigation row is moved
+    to its terminal status and the engine's evidence + source inventory are
+    returned for the #21 persistence layer.
     """
     repository: InvestigationRepository = ctx["investigation_repository"]
     credential_store: CredentialStore = ctx["credential_store"]
+    approval_repository: ApprovalRepository = ctx["approval_repository"]
+    catalog: Catalog = ctx["catalog"]
+    connector: Connector | None = ctx.get("connector")
 
     try:
         _require_credentials(credential_store, investigation_id)
-        # #12 fills in the approved catalog execution here.
+        result = run_diagnostic(
+            investigation_id,
+            investigation_repository=repository,
+            approval_repository=approval_repository,
+            catalog=catalog,
+            credential_store=credential_store,
+            connector=connector,
+        )
         repository.update_status(investigation_id, "succeeded")
-        return {"investigation_id": investigation_id, "status": "succeeded"}
+        return result.model_dump()
     except Exception:
         repository.update_status(investigation_id, "failed")
         raise
@@ -93,11 +109,15 @@ def make_worker_settings(
     *,
     credential_store: CredentialStore | None = None,
     investigation_repository: InvestigationRepository | None = None,
+    approval_repository: ApprovalRepository | None = None,
+    catalog: Catalog | None = None,
+    connector: Connector | None = None,
 ) -> dict[str, Any]:
     """Build the arq worker settings for ``settings`` (config-driven).
 
-    The repository and credential store are injectable so unit tests can run
-    the worker against fakes; the CLI path uses the real implementations.
+    The repository, catalog, credential store, and connector are injectable so
+    unit tests can run the worker against fakes; the CLI path uses the real
+    implementations (the connector defaults to the #6 module inside the engine).
     """
     return {
         "functions": [example_task, diagnostic_run],
@@ -116,6 +136,13 @@ def make_worker_settings(
                 if investigation_repository is None
                 else investigation_repository
             ),
+            "approval_repository": (
+                SqlAlchemyApprovalRepository()
+                if approval_repository is None
+                else approval_repository
+            ),
+            "catalog": load_catalog() if catalog is None else catalog,
+            "connector": connector,
         },
     }
 

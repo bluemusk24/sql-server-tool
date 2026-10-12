@@ -17,8 +17,15 @@ import pytest
 
 from app.config import Settings
 from app.credentials import AdContext, CredentialStore, SqlCredentials
-from app.investigations.repository import InMemoryInvestigationRepository
+from app.diagnostics.catalog import Catalog, build_catalog
+from app.execution import RunNotApproved
+from app.investigations.repository import (
+    InMemoryApprovalRepository,
+    InMemoryInvestigationRepository,
+)
+from app.investigations.service import required_catalog_ids
 from app.jobs.queue import task_path
+from app.sql.connector import Row
 
 VALID_ENV = {
     "DATABASE_URL": "mssql+pyodbc://user:pass@db:1433/repo?driver=ODBC+Driver+18+for+SQL+Server",
@@ -140,12 +147,60 @@ def test_task_path_rejects_a_task_outside_app_worker():
 # --- diagnostic_run ---------------------------------------------------------
 
 
-def _run(worker, repository, store, investigation_id):
-    ctx = {
+class _FakeConnection:
+    def __init__(self, database: str) -> None:
+        self.database = database
+
+    def close(self) -> None:
+        pass
+
+
+class _RecordingConnector:
+    """Minimal #6-shaped connector: one canned row for every query."""
+
+    def __init__(self, rows_by_sql: dict[str, list[Row]] | None = None) -> None:
+        self.rows_by_sql = rows_by_sql or {}
+        self.connect_calls: list[dict] = []
+        self.query_calls: list[dict] = []
+
+    def connect(self, host, database, username, password, *, port=1433, login_timeout=15, query_timeout=30, read_only=True):
+        self.connect_calls.append(
+            {"database": database, "read_only": read_only, "host": host}
+        )
+        return _FakeConnection(database)
+
+    def query(self, conn, sql, *, params=None, allow_write=False, timeout=None):
+        self.query_calls.append({"sql": sql, "allow_write": allow_write})
+        return list(self.rows_by_sql.get(sql, []))
+
+
+def _approve_all(approvals: InMemoryApprovalRepository, investigation_id: int) -> None:
+    for catalog_id in required_catalog_ids(build_catalog()):
+        approvals.append_decision(
+            investigation_id=investigation_id,
+            catalog_id=catalog_id,
+            decision="approved",
+            actor="dba",
+            note=None,
+        )
+
+
+def _ctx(repository, store, *, approvals=None, catalog=None, connector=None) -> dict:
+    return {
         "investigation_repository": repository,
         "credential_store": store,
+        "approval_repository": approvals or InMemoryApprovalRepository(),
+        "catalog": catalog or build_catalog(),
+        "connector": connector or _RecordingConnector(),
     }
-    return asyncio.run(worker.diagnostic_run(ctx, investigation_id))
+
+
+def _run(worker, repository, store, investigation_id, **ctx_kwargs):
+    return asyncio.run(
+        worker.diagnostic_run(
+            _ctx(repository, store, **ctx_kwargs), investigation_id
+        )
+    )
 
 
 def test_diagnostic_run_without_credentials_fails_with_clear_status(
@@ -163,16 +218,33 @@ def test_diagnostic_run_without_credentials_fails_with_clear_status(
     assert repository.get_investigation(investigation_id).status == "failed"
 
 
-def test_diagnostic_run_with_credentials_succeeds_and_reflects_status(
+def test_diagnostic_run_without_approval_fails_and_reflects_status(
     worker, repository
 ):
     store = CredentialStore()
     investigation_id = repository.rows[0].id
     store.store(str(investigation_id), SqlCredentials("dba", "s3cret"))
 
-    result = _run(worker, repository, store, investigation_id)
+    with pytest.raises(RunNotApproved):
+        _run(worker, repository, store, investigation_id)
 
-    assert result == {"investigation_id": investigation_id, "status": "succeeded"}
+    assert repository.get_investigation(investigation_id).status == "failed"
+
+
+def test_diagnostic_run_with_credentials_succeeds_and_reflects_status(
+    worker, repository
+):
+    store = CredentialStore()
+    investigation_id = repository.rows[0].id
+    store.store(str(investigation_id), SqlCredentials("dba", "s3cret"))
+    approvals = InMemoryApprovalRepository()
+    _approve_all(approvals, investigation_id)
+
+    result = _run(worker, repository, store, investigation_id, approvals=approvals)
+
+    assert result["investigation_id"] == investigation_id
+    assert result["status"] == "succeeded"
+    assert len(result["sources"]) == len(build_catalog().all())
     assert repository.get_investigation(investigation_id).status == "succeeded"
 
 
@@ -192,9 +264,39 @@ def test_diagnostic_run_result_carries_no_credential_material(worker, repository
     investigation_id = repository.rows[0].id
     secret = "sup3r-s3cret-password"
     store.store(str(investigation_id), SqlCredentials("dba", secret))
+    approvals = InMemoryApprovalRepository()
+    _approve_all(approvals, investigation_id)
 
-    result = _run(worker, repository, store, investigation_id)
+    result = _run(worker, repository, store, investigation_id, approvals=approvals)
 
     assert secret not in str(result)
     assert "dba" not in str(result)
-    assert set(result) == {"investigation_id", "status"}
+    assert set(result) == {"investigation_id", "status", "evidence", "sources"}
+
+
+def test_diagnostic_run_engine_receives_read_only_connector(worker, repository):
+    store = CredentialStore()
+    investigation_id = repository.rows[0].id
+    store.store(str(investigation_id), SqlCredentials("dba", "s3cret"))
+    approvals = InMemoryApprovalRepository()
+    _approve_all(approvals, investigation_id)
+    connector = _RecordingConnector()
+
+    _run(worker, repository, store, investigation_id, approvals=approvals, connector=connector)
+
+    assert connector.connect_calls
+    assert all(call["read_only"] is True for call in connector.connect_calls)
+    assert all(call["allow_write"] is False for call in connector.query_calls)
+
+
+def test_worker_settings_include_execution_context(worker, repository):
+    settings = _settings()
+    built = worker.make_worker_settings(
+        settings,
+        investigation_repository=repository,
+        catalog=Catalog(),
+        connector=_RecordingConnector(),
+    )
+    assert built["ctx"]["approval_repository"] is not None
+    assert built["ctx"]["catalog"] is not None
+    assert built["ctx"]["connector"] is not None

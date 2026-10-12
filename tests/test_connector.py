@@ -56,8 +56,9 @@ class FakeCursor:
         self.executed: list[str] = []
         self.closed = False
 
-    def execute(self, sql: str) -> None:
+    def execute(self, sql: str, params: object | None = None) -> None:
         self.executed.append(sql)
+        self.params = params
         if self._execute_exc is not None:
             raise self._execute_exc
 
@@ -298,6 +299,33 @@ def test_select_with_allow_write_false_is_allowed(monkeypatch):
     rows = query(_conn, "SELECT email FROM dbo.queue", allow_write=False)
 
     assert [r["email"] for r in rows] == [rows_expected[0][0], rows_expected[1][0]]
+
+
+def test_query_binds_positional_params_for_placeholders(monkeypatch):
+    install_fake_pyodbc(
+        monkeypatch,
+        description=[("n", None, None, None, None, None)],
+        rows=[(5,)],
+    )
+    conn = connect(HOST, DATABASE, "sa", PASSWORD)
+
+    rows = query(conn, "SELECT n FROM t WHERE n >= ?", params=(4,))
+
+    assert rows[0][0] == 5
+    assert conn._driver.cursors[-1].params == (4,)
+
+
+def test_query_without_params_does_not_bind(monkeypatch):
+    install_fake_pyodbc(
+        monkeypatch,
+        description=[("n", None, None, None, None, None)],
+        rows=[(1,)],
+    )
+    conn = connect(HOST, DATABASE, "sa", PASSWORD)
+
+    query(conn, "SELECT n FROM t")
+
+    assert conn._driver.cursors[-1].params is None
 
 
 def test_connection_without_database_is_invalid(monkeypatch):
