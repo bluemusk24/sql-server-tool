@@ -32,6 +32,7 @@ export type {
   InvestigationSummary,
   JobState,
   JobStatusResponse,
+  LoginRequest,
   Organization,
   Recommendation,
   RemediationStep,
@@ -41,6 +42,7 @@ export type {
   Severity,
   Signal,
   SourceStatus,
+  TokenResponse,
 } from "./types";
 
 export { ApiError } from "./http";

@@ -13,6 +13,18 @@ export interface Session {
   actor: string;
 }
 
+/** POST /auth/login request body. */
+export interface LoginRequest {
+  username: string;
+  password: string;
+}
+
+/** POST /auth/login response — an opaque bearer token. */
+export interface TokenResponse {
+  access_token: string;
+  token_type: string;
+}
+
 export interface AuthorizationStart {
   authorize_url: string;
 }

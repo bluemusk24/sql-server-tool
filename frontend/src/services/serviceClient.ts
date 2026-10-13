@@ -16,6 +16,7 @@ import type {
   InvestigationResponse,
   InvestigationSummary,
   JobStatusResponse,
+  LoginRequest,
   Organization,
   ReportPayload,
   RunAccepted,
@@ -24,6 +25,8 @@ import type {
 
 export interface ServiceClient {
   // Auth
+  login(credentials: LoginRequest): Promise<Session>;
+  logout(): void;
   getSession(): Promise<Session>;
   startAuthorization(): Promise<AuthorizationStart>;
 

@@ -1,16 +1,11 @@
 import { useEffect, useState, useMemo } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import type { FC } from "react";
-import {
-  ApiError,
-  getInvestigation,
-  recordDecisions,
-  startRun,
-} from "../api/client";
+import { ApiError, services } from "../services";
 import type {
   ApprovalResponse,
   InvestigationResponse,
-} from "../api/types";
+} from "../services/types";
 import { QuerySql } from "../components/QuerySql";
 
 interface DecisionMap {
@@ -47,9 +42,12 @@ export const ApprovalScreen: FC = () => {
 
   useEffect(() => {
     if (!investigationId) return;
-    getInvestigation(parseInt(investigationId)).then(setInvestigation).catch((err) => {
-      setError(err instanceof Error ? err.message : "fetch error");
-    });
+    services
+      .getInvestigation(parseInt(investigationId))
+      .then(setInvestigation)
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : "fetch error");
+      });
   }, [investigationId]);
 
   const handleDecision = async (
@@ -64,7 +62,7 @@ export const ApprovalScreen: FC = () => {
         decisions: { [catalogId]: decision },
         note: decision === "rejected" ? note || null : null,
       };
-      const resp = await recordDecisions(parseInt(investigationId), payload);
+      const resp = await services.recordDecisions(parseInt(investigationId), payload);
       setApprovalResponse(resp);
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) {
@@ -123,7 +121,7 @@ export const ApprovalScreen: FC = () => {
   const start = async () => {
     setRunning(true);
     try {
-      const run = await startRun(parseInt(investigationId!));
+      const run = await services.startRun(parseInt(investigationId!));
       navigate(`/jobs/${run.job_id}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "start error");

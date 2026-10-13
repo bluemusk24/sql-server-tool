@@ -1,26 +1,26 @@
 /**
  * API health indicator test (#22).
  *
- * The indicator calls the real `GET /health` endpoint and
- * shows its status; the fetch is mocked to assert the
- * displayed value.
+ * The indicator calls `services.getHealth()` and shows its status.
+ * The service call is spied on to assert the displayed value for both
+ * the healthy and the unreachable cases.
  */
 
 import { render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { HealthStatus } from "../components/HealthStatus";
+import { services } from "../services";
 
 describe("HealthStatus", () => {
-  it("shows the API status returned by GET /health", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({ status: "ok", version: "0.1.0" }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }),
-      ),
-    );
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("shows the API status returned by getHealth", async () => {
+    vi.spyOn(services, "getHealth").mockResolvedValue({
+      status: "ok",
+      version: "0.1.0",
+    });
 
     render(<HealthStatus />);
 
@@ -30,10 +30,9 @@ describe("HealthStatus", () => {
     expect(screen.getByText(/\(v0\.1\.0\)/)).toBeInTheDocument();
   });
 
-  it("shows an unavailable status when the API cannot be reached", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(new Response(null, { status: 503 })),
+  it("shows an unavailable status when the health check fails", async () => {
+    vi.spyOn(services, "getHealth").mockRejectedValue(
+      new Error("connection refused"),
     );
 
     render(<HealthStatus />);

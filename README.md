@@ -290,12 +290,21 @@ With `VITE_API_BASE_URL` empty, the Vite dev server proxies `/health`,
 `http://localhost:8000` (see `frontend/vite.config.ts`), so no CORS
 configuration is needed in dev.
 
-> **Wiring note:** the frontend's HTTP transport currently forwards session
-> cookies (`credentials: "include"`) and does not yet attach the
-> `Authorization: Bearer <token>` header that the backend requires. To connect
-> it to the real backend, `frontend/src/services/http.ts` must store the token
-> from `POST /auth/login` and send it on each request. Until then, the frontend
-> is best used against its mock.
+### Signing in (mock and real)
+
+The frontend authenticates with a username/password form on the login
+screen. It posts to `POST /auth/login`, stores the returned opaque token
+in `localStorage` (`frontend/src/services/token.ts`), and sends it on
+every protected request as `Authorization: Bearer <token>`. The session
+is resolved via `GET /auth/session`; signing out clears the stored token.
+
+The same seeded credentials work in **both** modes, so you can exercise
+the login flow with or without a backend:
+
+| Username | Password |
+| -------- | -------- |
+| `dba` | `dba-password` |
+| `admin` | `admin-password` |
 
 ### Project structure
 
@@ -305,7 +314,8 @@ frontend/src/
     serviceClient.ts # The ServiceClient interface (single source of truth)
     mockService.ts   # In-memory implementation (default)
     realService.ts   # HTTP implementation
-    http.ts          # Low-level fetch transport
+    http.ts          # Low-level fetch transport (attaches the bearer token)
+    token.ts         # Bearer-token storage (localStorage)
     index.ts         # Factory: picks mock vs real from env
   pages/             # Route-level screens
   components/        # Reusable UI components

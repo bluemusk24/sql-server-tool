@@ -2,10 +2,12 @@
  * Low-level HTTP transport for the services layer.
  *
  * Every real (non-mock) service call goes through `request`, which
- * centralises the base-URL resolution, session-cookie forwarding,
- * timeout handling, and ApiError construction. Components never call
- * `fetch` directly — they go through a `ServiceClient` method.
+ * centralises the base-URL resolution, bearer-token attachment, timeout
+ * handling, and ApiError construction. Components never call `fetch`
+ * directly — they go through a `ServiceClient` method.
  */
+
+import { getToken } from "./token";
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 
@@ -67,11 +69,17 @@ export async function request<T>(path: string, opts: RequestOptions = {}): Promi
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
   try {
+    // Attach the bearer token on every request when one is present.
+    const headers: Record<string, string> = {};
+    if (body !== undefined) headers["Content-Type"] = "application/json";
+    const token = getToken();
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+
     const response = await fetch(apiUrl(path), {
       method,
       credentials: "include",
       signal: controller.signal,
-      headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
+      headers: Object.keys(headers).length > 0 ? headers : undefined,
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
     if (!response.ok) {

@@ -20,6 +20,8 @@ describe("mockServiceClient", () => {
     // Each test gets a fresh module state by re-importing
     vi.resetModules();
     client = mockServiceClient;
+    // Start each test signed out.
+    client.logout();
   });
 
   it("returns a healthy status", async () => {
@@ -27,10 +29,29 @@ describe("mockServiceClient", () => {
     expect(health).toEqual({ status: "ok", version: "0.1.0" });
   });
 
-  it("returns a session for the mock user", async () => {
-    const session = await client.getSession();
+  it("authenticates the seeded user and returns a session", async () => {
+    const session = await client.login({ username: "dba", password: "dba-password" });
     expect(session.organization).toBe("Acme Corp");
-    expect(session.actor).toBe("dina");
+    expect(session.actor).toBe("dba");
+
+    // The stored session is now resolvable.
+    const resolved = await client.getSession();
+    expect(resolved.actor).toBe("dba");
+  });
+
+  it("rejects bad credentials with a 401", async () => {
+    await expect(
+      client.login({ username: "dba", password: "wrong" }),
+    ).rejects.toMatchObject({ status: 401 });
+    await expect(
+      client.login({ username: "nobody", password: "dba-password" }),
+    ).rejects.toMatchObject({ status: 401 });
+  });
+
+  it("logs out and rejects subsequent session fetches", async () => {
+    await client.login({ username: "admin", password: "admin-password" });
+    client.logout();
+    await expect(client.getSession()).rejects.toMatchObject({ status: 401 });
   });
 
   it("lists seeded investigations", async () => {

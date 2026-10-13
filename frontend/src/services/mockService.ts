@@ -7,6 +7,7 @@
  */
 
 import { MOCK_CATALOG, MOCK_REPORT } from "./mockData";
+import { ApiError } from "./http";
 import type {
   ApprovalRequest,
   ApprovalResponse,
@@ -17,6 +18,7 @@ import type {
   InvestigationResponse,
   InvestigationSummary,
   JobStatusResponse,
+  LoginRequest,
   Organization,
   ReportPayload,
   RunAccepted,
@@ -35,6 +37,17 @@ function delay<T>(value: T, ms = NETWORK_DELAY_MS): Promise<T> {
 
 let nextInvestigationId = 100;
 let nextOrgId = 10;
+
+// Seeded users — mirror the backend's credentials so the same
+// username/password works in mock and real mode.
+const MOCK_USERS: Record<string, { password: string; session: Session }> = {
+  dba: { password: "dba-password", session: { organization: "Acme Corp", actor: "dba" } },
+  admin: { password: "admin-password", session: { organization: "Acme Corp", actor: "admin" } },
+};
+
+// The mock starts signed out so the login screen appears; `login`
+// populates this and `logout` clears it.
+let currentSession: Session | null = null;
 
 const investigations = new Map<number, InvestigationResponse>();
 const approvals = new Map<number, ApprovalResponse>();
@@ -67,8 +80,21 @@ approvals.set(42, {
 
 export const mockServiceClient: ServiceClient = {
   // Auth
+  async login(credentials: LoginRequest): Promise<Session> {
+    await delay(null, 200);
+    const user = MOCK_USERS[credentials.username];
+    if (!user || user.password !== credentials.password) {
+      throw new ApiError(401, "Invalid username or password");
+    }
+    currentSession = user.session;
+    return user.session;
+  },
+  logout(): void {
+    currentSession = null;
+  },
   async getSession(): Promise<Session> {
-    return delay({ organization: "Acme Corp", actor: "dina" });
+    if (!currentSession) throw new ApiError(401, "Not authenticated");
+    return delay(currentSession);
   },
   async startAuthorization(): Promise<AuthorizationStart> {
     return delay({ authorize_url: "https://idp.acme.example/authorize" });

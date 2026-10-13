@@ -6,6 +6,7 @@
  */
 
 import { request } from "./http";
+import { setToken, clearToken } from "./token";
 import type {
   ApprovalResponse,
   AuthorizationStart,
@@ -13,15 +14,26 @@ import type {
   InvestigationResponse,
   InvestigationSummary,
   JobStatusResponse,
+  LoginRequest,
   Organization,
   ReportPayload,
   RunAccepted,
   Session,
+  TokenResponse,
 } from "./types";
 import type { ServiceClient } from "./serviceClient";
 
 export const realServiceClient: ServiceClient = {
   // Auth
+  login: async (credentials: LoginRequest) => {
+    const token = await request<TokenResponse>("/auth/login", {
+      method: "POST",
+      body: credentials,
+    });
+    setToken(token.access_token);
+    return request<Session>("/auth/session");
+  },
+  logout: () => clearToken(),
   getSession: () => request<Session>("/auth/session"),
   startAuthorization: () => request<AuthorizationStart>("/auth/authorize"),
 

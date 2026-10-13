@@ -1,14 +1,15 @@
 /**
  * Authentication state (#22).
  *
- * The provider resolves the caller by fetching the session
- * indicator (`GET /auth/session`). Until #30 deploys the
- * backend flow that endpoint returns 404, so the app starts
+ * The provider resolves the caller by fetching the session indicator
+ * (`GET /auth/session`) through the centralized services layer, which
+ * attaches the bearer token stored by `login`. On mount, a stored token
+ * is looked up; if it is absent or rejected (401), the app starts
  * unauthenticated and `/` redirects to the login screen.
  *
- * `signIn` starts the OIDC flow by hitting `GET /auth/authorize`.
- * That endpoint is also #30's, so a 404 here is expected and is
- * surfaced as a clear notice rather than crashing the app.
+ * `signIn(username, password)` posts credentials to `POST /auth/login`,
+ * stores the returned bearer token, and resolves the session. Sign-out
+ * clears the token so the next reload starts fresh.
  */
 
 import {
@@ -20,8 +21,8 @@ import {
   useState,
 } from "react";
 import type { ReactNode } from "react";
-import { ApiError, getSession, startAuthorization } from "../api/client";
-import type { Session } from "../api/types";
+import { ApiError, services } from "../services";
+import type { Session } from "../services/types";
 
 export type AuthState =
   | { status: "loading" }
@@ -30,12 +31,13 @@ export type AuthState =
 
 /** The outcome of a sign-in attempt. */
 export type SignInResult =
-  | { ok: true; authorizeUrl: string }
+  | { ok: true }
   | { ok: false; message: string };
 
 interface AuthContextValue {
   state: AuthState;
-  signIn: () => Promise<SignInResult>;
+  signIn: (username: string, password: string) => Promise<SignInResult>;
+  signOut: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -43,39 +45,47 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({ status: "loading" });
 
+  // Resolve any stored session on mount.
   useEffect(() => {
     let cancelled = false;
-    getSession()
+    services
+      .getSession()
       .then((session) => {
-        if (!cancelled) {
-          setState({ status: "authenticated", session });
-        }
+        if (!cancelled) setState({ status: "authenticated", session });
       })
       .catch(() => {
-        if (!cancelled) {
-          setState({ status: "unauthenticated" });
-        }
+        if (!cancelled) setState({ status: "unauthenticated" });
       });
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const signIn = useCallback(async (): Promise<SignInResult> => {
-    try {
-      const start = await startAuthorization();
-      return { ok: true, authorizeUrl: start.authorize_url };
-    } catch (error) {
-      // Pre-#30 the endpoint is not deployed (404): show a clear,
-      // non-crashing notice. Anything else is a generic retry hint.
-      if (error instanceof ApiError && error.status === 404) {
-        return { ok: false, message: "Backend sign-in is not deployed yet." };
+  const signIn = useCallback(
+    async (username: string, password: string): Promise<SignInResult> => {
+      try {
+        const session = await services.login({ username, password });
+        setState({ status: "authenticated", session });
+        return { ok: true };
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 401) {
+          return { ok: false, message: "Invalid username or password." };
+        }
+        if (error instanceof ApiError && error.status === 404) {
+          return { ok: false, message: "Backend is unreachable." };
+        }
+        return { ok: false, message: "Could not sign in. Try again." };
       }
-      return { ok: false, message: "Could not start sign-in. Try again." };
-    }
+    },
+    [],
+  );
+
+  const signOut = useCallback(() => {
+    services.logout();
+    setState({ status: "unauthenticated" });
   }, []);
 
-  const value = useMemo(() => ({ state, signIn }), [state, signIn]);
+  const value = useMemo(() => ({ state, signIn, signOut }), [state, signIn, signOut]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

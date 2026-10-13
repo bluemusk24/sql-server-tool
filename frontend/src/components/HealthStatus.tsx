@@ -6,8 +6,8 @@
  */
 
 import { useEffect, useState } from "react";
-import { getHealth } from "../api/client";
-import type { HealthStatus } from "../api/types";
+import { services } from "../services";
+import type { HealthStatus } from "../services/types";
 
 type State =
   | { status: "loading" }
@@ -19,7 +19,8 @@ export function HealthStatus() {
 
   useEffect(() => {
     let cancelled = false;
-    getHealth()
+    services
+      .getHealth()
       .then((health) => {
         if (!cancelled) {
           setState({ status: "ok", health });

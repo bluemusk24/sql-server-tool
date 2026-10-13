@@ -1,42 +1,72 @@
 /**
  * Login screen test (#22).
  *
- * The "Sign in with SSO" button hits `GET /auth/authorize`.
- * Until #30 deploys that endpoint it returns 404, and the
- * screen must show a clear notice rather than crashing.
+ * The form posts username/password to `services.login`. An invalid
+ * login (401) surfaces a clear message rather than crashing, and a
+ * valid login calls the service with the entered credentials.
  */
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { AuthProvider } from "../auth/AuthContext";
 import { LoginPage } from "../pages/LoginPage";
+import { services, ApiError } from "../services";
+
+function renderLogin() {
+  return render(
+    <AuthProvider>
+      <MemoryRouter>
+        <LoginPage />
+      </MemoryRouter>
+    </AuthProvider>,
+  );
+}
+
+async function fillAndSubmit(username: string, password: string) {
+  fireEvent.change(await screen.findByLabelText(/username/i), {
+    target: { value: username },
+  });
+  fireEvent.change(screen.getByLabelText(/password/i), {
+    target: { value: password },
+  });
+  fireEvent.click(screen.getByRole("button", { name: /sign in/i }));
+}
 
 describe("LoginPage", () => {
-  it("hits /auth/authorize and tolerates a 404 with a clear notice", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue(new Response(null, { status: 404 }));
-    vi.stubGlobal("fetch", fetchMock);
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
 
-    render(
-      <AuthProvider>
-        <MemoryRouter>
-          <LoginPage />
-        </MemoryRouter>
-      </AuthProvider>,
+  it("shows a clear message when credentials are rejected", async () => {
+    vi.spyOn(services, "login").mockRejectedValue(
+      new ApiError(401, "Invalid username or password"),
     );
 
-    fireEvent.click(
-      await screen.findByRole("button", { name: /sign in with sso/i }),
-    );
+    renderLogin();
+    await fillAndSubmit("dba", "wrong-password");
 
     await waitFor(() => {
-      expect(screen.getByRole("alert")).toHaveTextContent(/not deployed/i);
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        /invalid username or password/i,
+      );
+    });
+  });
+
+  it("calls login with the entered credentials", async () => {
+    const loginMock = vi.spyOn(services, "login").mockResolvedValue({
+      organization: "Acme Corp",
+      actor: "dba",
     });
 
-    // The button really did call GET /auth/authorize.
-    const paths = fetchMock.mock.calls.map((call) => call[0]);
-    expect(paths).toContain("/auth/authorize");
+    renderLogin();
+    await fillAndSubmit("dba", "dba-password");
+
+    await waitFor(() => {
+      expect(loginMock).toHaveBeenCalledWith({
+        username: "dba",
+        password: "dba-password",
+      });
+    });
   });
 });
