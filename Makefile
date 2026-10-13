@@ -53,12 +53,14 @@ run: ## Start the whole stack: backend (:8000) + frontend (:5173, real mode)
 	nohup sh -c 'cd "$(BACKEND_DIR)" && exec uv run uvicorn app.main:app --reload --port $(BACKEND_PORT)' >"$(BACKEND_LOG)" 2>&1 & \
 	BACKEND_PID=$$!; echo "$$BACKEND_PID" >"$(BACKEND_LOG).pid"; \
 	echo -n "Waiting for backend"; \
-	for i in $$(seq 1 60); do \
-	  if curl -sf $(BACKEND_URL)/health >/dev/null 2>&1; then echo " ready"; break; fi; \
+	for i in $$(seq 1 360); do \
+	  if curl -sf --max-time 2 $(BACKEND_URL)/health >/dev/null 2>&1; then echo " ready after $$(( (i - 1) / 2 ))s"; break; fi; \
 	  if ! kill -0 "$$BACKEND_PID" 2>/dev/null; then echo " failed"; echo "Backend exited early - see $(BACKEND_LOG)"; exit 1; fi; \
-	  echo -n "."; sleep 0.5; \
+	  echo -n "."; \
+	  if [ $$(( i % 40 )) -eq 0 ]; then echo -n " [$$(( i / 2 ))s]"; fi; \
+	  sleep 0.5; \
 	done; \
-	if ! curl -sf $(BACKEND_URL)/health >/dev/null 2>&1; then echo " backend did not become healthy — check $(BACKEND_LOG)"; exit 1; fi; \
+	if ! curl -sf --max-time 2 $(BACKEND_URL)/health >/dev/null 2>&1; then echo " backend did not become healthy within 180s - check $(BACKEND_LOG)"; exit 1; fi; \
 	echo "Starting frontend on $(FRONTEND_URL) in real mode — press Ctrl+C to stop both."; \
 	cd "$(FRONTEND_DIR)" && VITE_USE_MOCK=false npm run dev
 

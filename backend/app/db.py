@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import Request
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -64,17 +64,23 @@ def init_schema(engine: Engine, database_url: str) -> None:
     ``create_all`` bootstraps a fresh database with zero configuration. If
     Alembic is present we then ``stamp head`` so that a later
     ``alembic upgrade`` doesn't try to re-create the same tables.
+
+    Once ``alembic_version`` exists the stamp is skipped entirely — it only
+    ever matters for a freshly bootstrapped database, and avoiding it keeps
+    Alembic (a heavy import) out of the normal startup path.
     """
     from app.db_models import Base
 
     Base.metadata.create_all(engine, checkfirst=True)
+    if ":memory:" in database_url:
+        return  # ephemeral test databases don't need migration tracking
+    if inspect(engine).has_table("alembic_version"):
+        return  # schema already tracked; nothing to stamp
     _stamp_alembic(database_url)
 
 
 def _stamp_alembic(database_url: str) -> None:
     """Mark the schema as at ``head`` in ``alembic_version`` (best effort)."""
-    if ":memory:" in database_url:
-        return  # ephemeral test databases don't need migration tracking
     try:
         from alembic.config import Config
 
