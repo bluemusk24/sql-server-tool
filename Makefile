@@ -8,6 +8,7 @@
 .PHONY: help run mock backend frontend setup install test \
         backend-install backend-test backend-lint backend-format \
         frontend-install frontend-test frontend-typecheck frontend-build \
+        image container \
         migrate migrate-new migrate-down token clean
 
 # ── Configuration ────────────────────────────────────────────────────
@@ -104,6 +105,15 @@ frontend-typecheck: ## Type-check frontend (tsc)
 
 frontend-build: ## Type-check and build frontend for production
 	cd "$(FRONTEND_DIR)" && npm run build
+
+# ── Container (single image: API + frontend) ─────────────────────────
+# The frontend is built with Node and served by the API itself (#35),
+# so one container runs the whole product. Requires Docker.
+image: ## Build the single-image container (API serves the frontend)
+	docker build -t sqldiag:local .
+
+container: image ## Build and run the container on :8000 (Ctrl+C stops it)
+	docker run --rm -p 8000:8000 sqldiag:local
 
 # ── Database migrations (Alembic) ────────────────────────────────────
 # The app bootstraps tables itself on startup (create_all) and stamps the

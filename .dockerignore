@@ -1,0 +1,27 @@
+# Build-context hygiene for the root Dockerfile (#35): keep the context
+# to the sources the image actually builds from.
+.git
+.github
+.vscode
+
+# Python artefacts — the image installs from uv.lock and compiles its
+# own bytecode; local caches and databases only bloat the context.
+**/__pycache__
+**/*.py[cod]
+**/.venv
+**/.pytest_cache
+**/.ruff_cache
+**/*.db
+**/*.sqlite3
+
+# Frontend artefacts — node_modules and dist are produced inside the
+# image's Node stage, never copied from the host.
+**/node_modules
+**/dist
+**/coverage
+
+# Not part of any image build.
+docs
+*.md
+.env
+.env.*

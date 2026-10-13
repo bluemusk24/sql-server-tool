@@ -17,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app import __version__
 from app.db import get_database_url, init_schema, make_engine, make_session_factory
 from app.routers import auth, health, investigations, jobs, orgs, reports
+from app.spa import mount_frontend
 from app.store import seed_database
 
 # Origins permitted when $CORS_ALLOW_ORIGINS is unset: the Vite dev server
@@ -71,6 +72,10 @@ def create_app(database_url: str | None = None) -> FastAPI:
     app.include_router(investigations.router)
     app.include_router(jobs.router)
     app.include_router(reports.router)
+
+    # The built SPA, when the image ships one ($FRONTEND_DIST). Mounted
+    # last so every API route above — and /docs — keeps priority (#35).
+    mount_frontend(app)
     return app
 
 

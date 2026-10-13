@@ -294,6 +294,7 @@ backend/app/
   security.py        # Password hashing primitives (no dependencies)
   auth.py            # Bearer-token guard
   pdf.py             # Dependency-free PDF renderer for report downloads
+  spa.py             # Optional SPA serving when $FRONTEND_DIST is set (#35)
   main.py            # App factory; configures the DB + seeds per app
   routers/
     auth.py          # /auth/*
@@ -500,6 +501,13 @@ make frontend   # real mode (VITE_USE_MOCK=false) — talks to terminal 1
 | `make frontend-typecheck` | Type-check the frontend (`npm run typecheck`). |
 | `make frontend-build` | Type-check and build the frontend for production (`npm run build`). |
 
+### Container
+
+| Command | What it does |
+| ------- | ------------ |
+| `make image` | Build the single-image container (API + built frontend) as `sqldiag:local`. |
+| `make container` | Build it and run it on `:8000` — the backend serves the whole app. |
+
 ### How `make run` works
 
 `make run` starts the backend in the background (logging to
@@ -520,6 +528,41 @@ deploys as a **container** (Render / Fly.io / Azure Container Apps). Keeping
 the API in a container rather than in Vercel's serverless functions preserves
 the path to live SQL Server diagnosis (#31): a container can install the
 Microsoft ODBC Driver 18 and keep state, a function cannot.
+
+Two shapes: the **single container** below (one service, one origin, the
+smallest footprint — recommended for Render's free tier), or the **split
+deploy** (Vercel frontend + API container) if you want them independent.
+
+### One container (API serves the frontend)
+
+The root [`Dockerfile`](Dockerfile) is multi-stage: Node builds the React
+bundle, then the API image receives it and serves it at `/` behind the API
+routes (`FRONTEND_DIST` → [`backend/app/spa.py`](backend/app/spa.py)):
+
+```bash
+make image                                   # docker build -t sqldiag:local .
+docker run --rm -p 8000:8000 sqldiag:local   # or: make container
+# → http://localhost:8000 serves both the SPA and the API
+```
+
+- The bundle is baked with `VITE_USE_MOCK=false` and an empty
+  `VITE_API_BASE_URL`, so every call is same-origin — no CORS config at all.
+- Serving is opt-in: set `FRONTEND_DIST` to a directory of built assets and
+  the app mounts it; leave it unset and the app stays API-only, exactly as
+  `make run`, the tests, and the split deploy expect. Unknown extension-less
+  paths fall back to `index.html` for React Router; real files keep honest
+  404s. API routes, `/docs`, and `/openapi.json` always win over the SPA.
+- Persistence: the default SQLite file lives inside the container. Attach a
+  volume and point `DATABASE_URL` at it, e.g.
+  `docker run -p 8000:8000 -v sqldiag-data:/data -e DATABASE_URL=sqlite:////data/sqlserver_tool.db sqldiag:local`,
+  or point `DATABASE_URL` at Postgres (#33) — the driver is already in the image.
+- Deep links and hard refreshes work on every screen, including the
+  paths that collide with API routes (`/investigations`,
+  `/investigations/new`, `/jobs/<id>`): browser page loads carry no bearer
+  token, so those get `index.html`, while API clients (fetch/XHR) keep
+  their exact 401/JSON semantics — see `app/spa.py`.
+- On Render: New → Web Service → Docker, Root Directory left at the repo
+  root, and this single service runs everything.
 
 ### Frontend on Vercel
 
