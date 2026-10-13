@@ -5,7 +5,7 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: help run backend frontend setup install test \
+.PHONY: help run mock backend frontend setup install test \
         backend-install backend-test backend-lint backend-format \
         frontend-install frontend-test frontend-typecheck frontend-build \
         token clean
@@ -29,7 +29,7 @@ help: ## Show this help (default target)
 	@echo
 
 # ── Run ──────────────────────────────────────────────────────────────
-run: ## Start the whole stack: backend (:8000) + frontend (:5173)
+run: ## Start the whole stack: backend (:8000) + frontend (:5173, real mode)
 	@BACKEND_PID=""; \
 	cleanup() { [ -n "$$BACKEND_PID" ] && kill "$$BACKEND_PID" 2>/dev/null || true; rm -f "$(BACKEND_LOG).pid"; }; \
 	trap cleanup EXIT INT TERM; \
@@ -37,12 +37,15 @@ run: ## Start the whole stack: backend (:8000) + frontend (:5173)
 	nohup sh -c 'cd "$(BACKEND_DIR)" && exec uv run uvicorn app.main:app --reload --port $(BACKEND_PORT)' >"$(BACKEND_LOG)" 2>&1 & \
 	BACKEND_PID=$$!; echo "$$BACKEND_PID" >"$(BACKEND_LOG).pid"; \
 	echo -n "Waiting for backend"; \
-	for i in $$(seq 1 60); do \
+	for i in $$(seq 1 120); do \
 	  if curl -sf $(BACKEND_URL)/health >/dev/null 2>&1; then echo " ready"; break; fi; \
 	  echo -n "."; sleep 0.5; \
 	done; \
 	if ! curl -sf $(BACKEND_URL)/health >/dev/null 2>&1; then echo " backend did not become healthy — check $(BACKEND_LOG)"; fi; \
-	echo "Starting frontend on $(FRONTEND_URL) — press Ctrl+C to stop both."; \
+	echo "Starting frontend on $(FRONTEND_URL) in real mode — press Ctrl+C to stop both."; \
+	cd "$(FRONTEND_DIR)" && VITE_USE_MOCK=false npm run dev
+
+mock: ## Start the frontend against its in-memory mock (no backend)
 	cd "$(FRONTEND_DIR)" && npm run dev
 
 backend: ## Run only the backend API on :8000

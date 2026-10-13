@@ -47,11 +47,13 @@ single memorable `make` target. From a clean clone:
 
 ```bash
 make setup    # install backend (uv) + frontend (npm) dependencies
-make run      # start backend (:8000) + frontend (:5173); Ctrl+C stops both
+make run      # start backend (:8000) + frontend (:5173) in real mode; Ctrl+C stops both
 ```
 
-Open <http://localhost:5173>. By default the frontend uses its built-in mock
-and needs no backend; to exercise the real backend see
+Open <http://localhost:5173> and sign in with `dba` / `dba-password`. `make run`
+starts the frontend in **real mode**, so everything you do in the UI is served
+by the FastAPI backend. To run the UI against its built-in mock instead (no
+backend needed), use `make mock` — see
 [Mock vs. real backend](#mock-vs-real-backend).
 
 With the backend running, the interactive API docs (Swagger UI) are served at
@@ -263,30 +265,30 @@ npm run preview      # serve the production build locally
 
 ### Mock vs. real backend
 
-The service client is chosen at build time via environment variables
-(see `frontend/.env.example`):
+`make run` starts the frontend in **real mode** (talking to the backend on
+`:8000`); `make mock` runs it against the built-in mock with no backend. The
+mode is chosen at build time via environment variables (see
+`frontend/.env.example`):
 
 | Variable | Effect |
 | -------- | ------ |
-| `VITE_USE_MOCK` | `true` (default) uses the in-memory mock; `false` uses the real HTTP client |
+| `VITE_USE_MOCK` | `true` uses the in-memory mock; `false` (the default under `make run`) uses the real HTTP client |
 | `VITE_API_BASE_URL` | Base URL for the real client, no trailing slash (e.g. `http://localhost:8000`). Leave empty to use the Vite proxy (same-origin) |
 
-**Run against the mock (default, no backend needed):**
+**Run against the real backend (recommended):**
 
 ```bash
-npm run dev
+make run        # backend + frontend together, real mode
 ```
 
-**Run against the real backend:**
+**Run against the mock (default for a bare `npm run dev`, no backend needed):**
 
 ```bash
-# from frontend/, with the backend already running on :8000
-echo "VITE_USE_MOCK=false" > .env.local
-npm run dev
+make mock       # or: cd frontend && npm run dev
 ```
 
 With `VITE_API_BASE_URL` empty, the Vite dev server proxies `/health`,
-`/auth`, `/investigations`, `/jobs`, and `/reports` to
+`/auth`, `/investigations`, `/jobs`, `/reports`, and `/orgs` to
 `http://localhost:8000` (see `frontend/vite.config.ts`), so no CORS
 configuration is needed in dev.
 
@@ -306,6 +308,25 @@ the login flow with or without a backend:
 | `dba` | `dba-password` |
 | `admin` | `admin-password` |
 
+### Verify the full stack (two windows)
+
+With `make run` up, you can confirm the UI and the backend are genuinely
+connected:
+
+1. **Window 1** — sign in as `dba`, click **New investigation**, fill the form,
+   and submit. You land on the approval screen: approve every query, then
+   **Start run**. You're taken to the run status, then **View report**.
+2. **Check the backend** — `backend` logs show each `POST`, and
+   <http://127.0.0.1:8000/docs> lists the investigation and its report.
+3. **Window 2** (a normal or private window) — sign in as `admin`. The hub's
+   investigation list shows the investigation window 1 created, and opens the
+   same report.
+
+This works because both windows talk to **one shared in-memory store** on the
+backend. There is no real-time push: window 2 sees new items after a
+**Refresh** (or reload). The store is in-memory, so it resets whenever the
+backend restarts.
+
 ### Project structure
 
 ```
@@ -318,7 +339,16 @@ frontend/src/
     token.ts         # Bearer-token storage (localStorage)
     index.ts         # Factory: picks mock vs real from env
   pages/             # Route-level screens
+    LoginPage.tsx        # username/password sign-in
+    LandingPage.tsx      # hub: session, new investigation, investigation list
+    ConnectionScopeForm.tsx  # create an investigation
+    ApprovalScreen.tsx   # approve/reject catalog queries, start the run
+    JobStatusPage.tsx    # run status (polls until terminal)
+    ReportPage.tsx       # report dashboard + PDF download
   components/        # Reusable UI components
+    HealthStatus.tsx         # API health indicator
+    InvestigationList.tsx    # shared-store investigation list
+    QuerySql.tsx             # read-only SQL viewer
   auth/              # Auth context + route guard
   __tests__/         # Vitest tests
 ```
@@ -336,7 +366,8 @@ the underlying commands. Run `make` (or `make help`) to list them at any time.
 | ------- | ------------ |
 | `make` / `make help` | List all targets (this is the default target). |
 | `make setup` | Install backend (`uv sync`) and frontend (`npm install`) dependencies. |
-| `make run` | Start the **whole stack** — backend on `:8000` and frontend on `:5173`. Press Ctrl+C to stop both. |
+| `make run` | Start the **whole stack** — backend on `:8000` and frontend on `:5173` in **real mode**. Press Ctrl+C to stop both. |
+| `make mock` | Start only the frontend dev server against its in-memory mock (no backend). |
 | `make test` | Run the backend (pytest) and frontend (vitest) test suites. |
 | `make token` | Print a bearer token for the seeded `dba` user (backend must be running). |
 | `make clean` | Remove caches and the frontend build output. |

@@ -1,17 +1,26 @@
 /**
- * Application shell (#22/#23).
+ * Application shell.
  *
- * `/login` is public; every other route sits behind the
- * session guard, which redirects unauthenticated visitors
- * to the login screen.
+ * `/login` is public; every other route sits behind the session guard,
+ * which redirects unauthenticated visitors to the login screen. The
+ * route tree mirrors the investigation lifecycle:
+ *
+ *   /                            → hub (list + new)
+ *   /investigations/new          → connection & scope form
+ *   /investigations/:id/approve  → approval gate
+ *   /jobs/:jobId                 → run status
+ *   /investigations/:id/report   → report dashboard
  */
 
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "./auth/AuthContext";
 import { RequireAuth } from "./auth/RequireAuth";
+import { ApprovalScreen } from "./pages/ApprovalScreen";
 import { ConnectionScopeForm } from "./pages/ConnectionScopeForm";
+import { JobStatusPage } from "./pages/JobStatusPage";
 import { LandingPage } from "./pages/LandingPage";
 import { LoginPage } from "./pages/LoginPage";
+import { ReportPage } from "./pages/ReportPage";
 
 export function App() {
   return (
@@ -22,8 +31,21 @@ export function App() {
           <Route element={<RequireAuth />}>
             <Route path="/" element={<LandingPage />} />
             <Route
+              path="/investigations"
+              element={<Navigate to="/" replace />}
+            />
+            <Route
               path="/investigations/new"
               element={<ConnectionScopeForm />}
+            />
+            <Route
+              path="/investigations/:id/approve"
+              element={<ApprovalScreen />}
+            />
+            <Route path="/jobs/:jobId" element={<JobStatusPage />} />
+            <Route
+              path="/investigations/:id/report"
+              element={<ReportPage />}
             />
           </Route>
         </Routes>

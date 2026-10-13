@@ -14,6 +14,7 @@ export default defineConfig({
       "/investigations": { target: "http://localhost:8000", changeOrigin: true },
       "/jobs": { target: "http://localhost:8000", changeOrigin: true },
       "/reports": { target: "http://localhost:8000", changeOrigin: true },
+      "/orgs": { target: "http://localhost:8000", changeOrigin: true },
     },
   },
   test: {
