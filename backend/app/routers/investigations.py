@@ -7,8 +7,6 @@ once a run has started, and a run cannot start until the gate is approved.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.auth import CurrentUser, get_current_user
@@ -22,12 +20,12 @@ from app.models import (
     InvestigationSummary,
     RunAccepted,
 )
-from app.store import ApprovalDecision, InMemoryStore, Investigation, get_store
+from app.store import ApprovalDecision, DatabaseStore, Investigation, get_store
 
 router = APIRouter(tags=["investigations"])
 
 
-def _require_inv(store: InMemoryStore, inv_id: int) -> Investigation:
+def _require_inv(store: DatabaseStore, inv_id: int) -> Investigation:
     inv = store.get_investigation(inv_id)
     if inv is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
@@ -70,7 +68,7 @@ def _approval_response(inv_id: int, decisions: dict[str, ApprovalDecision]) -> A
 
 @router.get("/investigations", response_model=list[InvestigationSummary])
 def list_investigations(
-    store: InMemoryStore = Depends(get_store),
+    store: DatabaseStore = Depends(get_store),
     _: CurrentUser = Depends(get_current_user),
 ) -> list[InvestigationSummary]:
     return [
@@ -86,7 +84,7 @@ def list_investigations(
 )
 def create_investigation(
     payload: CreateInvestigationRequest,
-    store: InMemoryStore = Depends(get_store),
+    store: DatabaseStore = Depends(get_store),
     _: CurrentUser = Depends(get_current_user),
 ) -> InvestigationResponse:
     inv = store.create_investigation(
@@ -104,7 +102,7 @@ def create_investigation(
 @router.get("/investigations/{inv_id}", response_model=InvestigationResponse)
 def get_investigation(
     inv_id: int,
-    store: InMemoryStore = Depends(get_store),
+    store: DatabaseStore = Depends(get_store),
     _: CurrentUser = Depends(get_current_user),
 ) -> InvestigationResponse:
     inv = _require_inv(store, inv_id)
@@ -116,7 +114,7 @@ def get_investigation(
 @router.get("/investigations/{inv_id}/approvals", response_model=ApprovalResponse)
 def get_approvals(
     inv_id: int,
-    store: InMemoryStore = Depends(get_store),
+    store: DatabaseStore = Depends(get_store),
     _: CurrentUser = Depends(get_current_user),
 ) -> ApprovalResponse:
     _require_inv(store, inv_id)
@@ -128,7 +126,7 @@ def get_approvals(
 def record_decisions(
     inv_id: int,
     payload: ApprovalRequest,
-    store: InMemoryStore = Depends(get_store),
+    store: DatabaseStore = Depends(get_store),
     user: CurrentUser = Depends(get_current_user),
 ) -> ApprovalResponse:
     inv = _require_inv(store, inv_id)
@@ -147,17 +145,10 @@ def record_decisions(
             detail=f"Unknown catalog ids: {', '.join(sorted(unknown))}",
         )
 
-    decisions = store.approvals.setdefault(inv_id, {})
-    now = datetime.now(UTC).isoformat()
-    for cid, decision in payload.decisions.items():
-        decisions[cid] = ApprovalDecision(
-            catalog_id=cid,
-            decision=decision,
-            actor=user.actor,
-            note=payload.note,
-            created_at=now,
-        )
-    inv.status = "pending_approval"
+    decisions = store.record_approvals(
+        inv_id, payload.decisions, user.actor, payload.note
+    )
+    store.set_investigation_status(inv_id, "pending_approval")
     return _approval_response(inv_id, decisions)
 
 
@@ -168,7 +159,7 @@ def record_decisions(
 )
 def start_run(
     inv_id: int,
-    store: InMemoryStore = Depends(get_store),
+    store: DatabaseStore = Depends(get_store),
     user: CurrentUser = Depends(get_current_user),
 ) -> RunAccepted:
     inv = _require_inv(store, inv_id)
@@ -184,12 +175,11 @@ def start_run(
             detail="Approval gate not satisfied",
         )
 
-    # The in-memory "run" succeeds immediately and produces a report so the
-    # dashboard has something to render. A real backend would enqueue here.
+    # The "run" succeeds immediately and produces a report so the dashboard
+    # has something to render. A real backend would enqueue here.
     job = store.create_job(inv_id)
-    job.status = "succeeded"
-    job.result = {"investigation_id": inv_id}
-    inv.status = "completed"
+    store.update_job(job.job_id, status="succeeded", result={"investigation_id": inv_id})
+    store.set_investigation_status(inv_id, "completed")
     store.generate_report(inv, user.organization)
     return RunAccepted(job_id=job.job_id)
 

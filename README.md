@@ -8,17 +8,20 @@ evidence, likely causes, validation checks, and remediation guidance.
 The product never runs remediation and never stores credentials — it only
 collects read-only evidence and recommends next steps.
 
-> **Current state:** the backend is an in-memory FastAPI service (seeded with
-> demo data, no database yet) that implements the API contract in
-> [`openapi.yaml`](openapi.yaml). The frontend runs against an in-memory mock
-> by default and can be pointed at the real backend. See
+> **Current state:** the backend is a FastAPI service backed by a SQL database
+> (SQLite by default, selected with `DATABASE_URL`) that implements the API
+> contract in [`openapi.yaml`](openapi.yaml). It is seeded with demo data on
+> first run. The frontend runs against an in-memory mock by default and can be
+> pointed at the real backend. See
 > [Frontend → Mock vs. real backend](#mock-vs-real-backend).
 
 ## Stack
 
-- **Backend:** Python 3.11+, FastAPI, Pydantic, Uvicorn. Persistence is an
-  in-memory store for now (a real database is the intended next step).
-  Authentication uses hashed passwords (PBKDF2) and opaque bearer tokens.
+- **Backend:** Python 3.11+, FastAPI, Pydantic, Uvicorn, **SQLAlchemy 2**
+  (with Alembic for migrations). Persistence is a SQL database chosen by the
+  `DATABASE_URL` environment variable — SQLite out of the box, Postgres later
+  with no code changes. Authentication uses hashed passwords (PBKDF2) and
+  opaque bearer tokens (stored in the database, so sessions survive restarts).
 - **Frontend:** React 18 + TypeScript, Vite, React Router, Vitest.
 
 ## Prerequisites
@@ -33,7 +36,7 @@ collects read-only evidence and recommends next steps.
 ## Project layout
 
 ```
-backend/      # FastAPI application, in-memory store, and tests
+backend/      # FastAPI application, SQLAlchemy store, migrations, and tests
 docs/         # spec.md, process.md, task-template.md, team roles
 frontend/     # React + TypeScript SPA
 openapi.yaml  # The API contract both sides implement
@@ -91,9 +94,11 @@ npm run dev                               # http://localhost:5173
 
 ## Backend
 
-A FastAPI app implementing [`openapi.yaml`](openapi.yaml). All state lives in
-an in-memory store (`backend/app/store.py`) that is seeded with demo data on
-startup, so the API is immediately usable without a database.
+A FastAPI app implementing [`openapi.yaml`](openapi.yaml). All state lives in a
+SQL database (`backend/app/store.py` talks to it through SQLAlchemy) that is
+seeded with demo data the first time it is created, so the API is immediately
+usable on a clean checkout. Restarting the backend keeps your data — it is no
+longer held in process memory.
 
 ### Setup
 
@@ -103,7 +108,29 @@ uv sync
 ```
 
 This creates `backend/.venv` (Python 3.11) and installs `fastapi`, `httpx`,
-and `uvicorn`.
+`uvicorn`, `sqlalchemy`, and `alembic`.
+
+### Database configuration
+
+The database is selected with one environment variable, `DATABASE_URL`
+(SQLAlchemy URL format):
+
+| Value | Database |
+| ----- | -------- |
+| `sqlite:///./sqlserver_tool.db` | SQLite file next to `backend/` (**default**, used when unset) |
+| `sqlite:////abs/path/data.db` | SQLite file at an absolute path |
+| `postgresql+psycopg://user:pass@host:5432/db` | Postgres (add a driver when you get there) |
+
+```bash
+# Use a different database for a run
+cd backend
+DATABASE_URL="sqlite:////tmp/dev.db" uv run uvicorn app.main:app --reload --port 8000
+```
+
+See [`backend/.env.example`](backend/.env.example). On startup the app creates
+the tables if they are missing and seeds demo data **only** when the database
+is empty — existing data is never overwritten. Schema changes are managed with
+Alembic (see [Migrations](#migrations)).
 
 ### Run
 
@@ -134,7 +161,8 @@ uv run ruff check .     # lint
 
 ### Seed data
 
-The store is seeded on startup so you have data to explore:
+The database is seeded **once, when it is first created** (never on subsequent
+restarts, so your data is preserved):
 
 | Kind | Value |
 | ---- | ----- |
@@ -210,10 +238,13 @@ Status codes follow the spec: **401** unauthenticated, **404** not found,
 ```
 backend/app/
   models.py          # Pydantic request/response schemas (the contract)
-  store.py           # In-memory store + seed data (swappable persistence layer)
-  auth.py            # Password hashing + bearer-token guard
+  db_models.py       # SQLAlchemy ORM tables (the schema)
+  db.py              # Engine/session wiring from $DATABASE_URL
+  store.py           # DatabaseStore (the persistence layer) + seed data
+  security.py        # Password hashing primitives (no dependencies)
+  auth.py            # Bearer-token guard
   pdf.py             # Dependency-free PDF renderer for report downloads
-  main.py            # App factory; attaches a fresh store per app
+  main.py            # App factory; configures the DB + seeds per app
   routers/
     auth.py          # /auth/*
     health.py        # /health
@@ -221,16 +252,25 @@ backend/app/
     jobs.py          # job status + cancel
     reports.py       # report JSON + PDF
     orgs.py          # organizations
+backend/alembic/     # Alembic migrations (versions/)
 backend/tests/       # pytest suite (one module per resource)
 ```
 
-### Swapping in a real database
+### Migrations
 
-Persistence is isolated behind `InMemoryStore` in `backend/app/store.py`. To
-move to a real database, replace that module with a database-backed
-implementation of the same methods — the routers and the HTTP contract do not
-change. The in-memory store keeps the frontend–backend integration stable while
-the persistence layer evolves.
+Tables are created automatically on startup (`create_all`), and the schema is
+stamped as Alembic `head` so the tooling stays in sync. When you change the
+models in `db_models.py`, generate and apply a migration:
+
+```bash
+make migrate-new MSG="describe the change"   # alembic revision --autogenerate
+make migrate                                 # alembic upgrade head
+make migrate-down                            # revert the last one
+```
+
+A fresh database can also be built purely by Alembic —
+`cd backend && uv run alembic upgrade head` — after which the app will seed it
+on first start.
 
 ---
 
@@ -322,10 +362,10 @@ connected:
    investigation list shows the investigation window 1 created, and opens the
    same report.
 
-This works because both windows talk to **one shared in-memory store** on the
-backend. There is no real-time push: window 2 sees new items after a
-**Refresh** (or reload). The store is in-memory, so it resets whenever the
-backend restarts.
+This works because both windows talk to **one shared database** on the backend.
+There is no real-time push: window 2 sees new items after a **Refresh** (or
+reload). The database persists across backend restarts, so your investigations
+and sessions are still there when you bring it back up.
 
 ### Project structure
 
@@ -368,6 +408,9 @@ the underlying commands. Run `make` (or `make help`) to list them at any time.
 | `make setup` | Install backend (`uv sync`) and frontend (`npm install`) dependencies. |
 | `make run` | Start the **whole stack** — backend on `:8000` and frontend on `:5173` in **real mode**. Press Ctrl+C to stop both. |
 | `make mock` | Start only the frontend dev server against its in-memory mock (no backend). |
+| `make migrate` | Apply database migrations (`alembic upgrade head`). |
+| `make migrate-new` | Generate a migration from model changes (`make migrate-new MSG="..."`). |
+| `make migrate-down` | Revert the last migration. |
 | `make test` | Run the backend (pytest) and frontend (vitest) test suites. |
 | `make token` | Print a bearer token for the seeded `dba` user (backend must be running). |
 | `make clean` | Remove caches and the frontend build output. |
@@ -431,3 +474,4 @@ Tasks are tracked as GitHub issues in this repository.
 | `401 Unauthorized` from protected endpoints | Include the token: `-H "Authorization: Bearer $TOKEN"`. Get one via `POST /auth/login`. |
 | Frontend shows mock data even though the backend runs | Expected — the mock is the default. Set `VITE_USE_MOCK=false` in `frontend/.env.local`. |
 | Frontend cannot reach the backend in real mode | Keep the Vite proxy config (leave `VITE_API_BASE_URL` empty) or set it to `http://localhost:8000` and ensure the backend is running. |
+| Want to reset all data back to the demo seed | Stop the backend and delete the database file: `rm -f backend/sqlserver_tool.db` (or the path in `DATABASE_URL`). It re-seeds on the next start. |

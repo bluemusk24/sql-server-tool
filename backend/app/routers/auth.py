@@ -10,9 +10,9 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.auth import CurrentUser, get_current_user, issue_token, verify_password
+from app.auth import CurrentUser, get_current_user, verify_password
 from app.models import AuthorizationStart, LoginRequest, Session, TokenResponse
-from app.store import InMemoryStore, get_store
+from app.store import DatabaseStore, get_store
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -20,9 +20,9 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 @router.post("/login", response_model=TokenResponse)
 def login(
     payload: LoginRequest,
-    store: InMemoryStore = Depends(get_store),
+    store: DatabaseStore = Depends(get_store),
 ) -> TokenResponse:
-    user = store.users.get(payload.username)
+    user = store.get_user(payload.username)
     if user is None or not verify_password(
         payload.password, user.password_salt, user.password_hash
     ):
@@ -30,7 +30,7 @@ def login(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password",
         )
-    token = issue_token(store, user.username)
+    token = store.issue_token(user.username)
     return TokenResponse(access_token=token)
 
 

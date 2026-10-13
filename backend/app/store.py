@@ -1,22 +1,27 @@
-"""In-memory store seeded with demo data.
+"""Database-backed store (SQLAlchemy), seeded with demo data.
 
-This is the persistence layer for the MVP. It holds organizations, users,
-investigations (with their catalog), approval decisions, jobs, and report
-payloads entirely in process memory. Replacing this module with a real
-database-backed implementation is the intended evolution and should not
-require touching the routers.
+This is the persistence layer. It speaks SQLAlchemy against whatever
+``DATABASE_URL`` points at (SQLite by default, Postgres later). Routers talk
+only to :class:`DatabaseStore`, so the HTTP contract is unchanged from the
+previous in-memory implementation.
 """
 
 from __future__ import annotations
 
+import secrets
+import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import Request
+from fastapi import Depends
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
-from app.auth import hash_password
+from app import db_models as orm
+from app.db import get_db
 from app.models import CatalogEntry
+from app.security import hash_password
 
 # ── Seed catalog (mirrors frontend/src/services/mockData.ts) ────────
 _SEED_CATALOG: list[dict[str, Any]] = [
@@ -161,7 +166,11 @@ _SEED_CATALOG: list[dict[str, Any]] = [
 CATALOG: list[CatalogEntry] = [CatalogEntry(**entry) for entry in _SEED_CATALOG]
 
 
-# ── Dataclasses held in memory ───────────────────────────────────────
+def _now() -> str:
+    return datetime.now(UTC).isoformat()
+
+
+# ── Dataclasses returned to routers (detached from the session) ─────
 @dataclass
 class User:
     username: str
@@ -201,96 +210,104 @@ class ApprovalDecision:
     created_at: str
 
 
-class InMemoryStore:
-    """A single process-local store instance, seeded on construction."""
+# ── Row → dataclass conversions ─────────────────────────────────────
+def _user_from(row: orm.UserRow) -> User:
+    return User(
+        username=row.username,
+        organization=row.organization,
+        actor=row.actor,
+        password_salt=row.password_salt,
+        password_hash=row.password_hash,
+    )
 
-    def __init__(self) -> None:
-        self.users: dict[str, User] = {}
-        self.tokens: dict[str, str] = {}  # token -> username
-        self.organizations: dict[int, dict[str, Any]] = {}
-        self.investigations: dict[int, Investigation] = {}
-        self.approvals: dict[int, dict[str, ApprovalDecision]] = {}
-        self.jobs: dict[str, Job] = {}
-        self.reports: dict[int, dict[str, Any]] = {}
-        self._next_org_id = 1
-        self._next_investigation_id = 1
-        self._seed()
 
-    # ── Seeding ─────────────────────────────────────────────────────
-    def _seed(self) -> None:
-        self._create_org("Acme Corp", "https://idp.acme.example")
+def _inv_from(row: orm.InvestigationRow) -> Investigation:
+    return Investigation(
+        id=row.id,
+        status=row.status,
+        server_host=row.server_host,
+        server_port=row.server_port,
+        auth_type=row.auth_type,
+        databases=row.databases,
+        lookback_hours=row.lookback_hours,
+    )
 
-        # Two demo users with hashed passwords.
-        salt, digest = hash_password("dba-password")
-        self.users["dba"] = User(
-            username="dba",
-            organization="Acme Corp",
-            actor="dba@acme.example",
-            password_salt=salt,
-            password_hash=digest,
+
+def _job_from(row: orm.JobRow) -> Job:
+    return Job(
+        job_id=row.job_id,
+        status=row.status,
+        investigation_id=row.investigation_id,
+        result=row.result,
+        error=row.error,
+    )
+
+
+def _decision_from(row: orm.ApprovalDecisionRow) -> ApprovalDecision:
+    return ApprovalDecision(
+        catalog_id=row.catalog_id,
+        decision=row.decision,
+        actor=row.actor,
+        note=row.note,
+        created_at=row.created_at,
+    )
+
+
+class DatabaseStore:
+    """Session-backed store. One instance per request, bound to that request's
+    session (see :func:`get_store`). Reads return detached dataclasses; writes
+    are explicit methods so persistence is unambiguous."""
+
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    # ── Auth ────────────────────────────────────────────────────────
+    def get_user(self, username: str) -> User | None:
+        row = self.session.get(orm.UserRow, username)
+        return _user_from(row) if row is not None else None
+
+    def resolve_token(self, token: str) -> User | None:
+        row = self.session.execute(
+            select(orm.UserRow)
+            .join(orm.AuthTokenRow, orm.AuthTokenRow.username == orm.UserRow.username)
+            .where(orm.AuthTokenRow.token == token)
+        ).scalar_one_or_none()
+        return _user_from(row) if row is not None else None
+
+    def issue_token(self, username: str) -> str:
+        token = secrets.token_urlsafe(32)
+        self.session.add(
+            orm.AuthTokenRow(token=token, username=username, created_at=_now())
         )
-        salt2, digest2 = hash_password("admin-password")
-        self.users["admin"] = User(
-            username="admin",
-            organization="Acme Corp",
-            actor="admin@acme.example",
-            password_salt=salt2,
-            password_hash=digest2,
-        )
-
-        # A completed investigation (id 1) with an approval set and a report,
-        # so the dashboard and report view have data to show immediately.
-        inv = Investigation(
-            id=self._next_investigation_id,
-            status="completed",
-            server_host="sql01.acme.example",
-            server_port=1433,
-            auth_type="ad",
-            databases=None,
-            lookback_hours=4,
-        )
-        self._next_investigation_id += 1
-        self.investigations[inv.id] = inv
-
-        # Seed approvals: every catalog entry approved by the dba.
-        now = datetime.now(UTC).isoformat()
-        self.approvals[inv.id] = {
-            entry.id: ApprovalDecision(
-                catalog_id=entry.id,
-                decision="approved",
-                actor="dba@acme.example",
-                note=None,
-                created_at=now,
-            )
-            for entry in CATALOG
-        }
-
-        # Seed a report for the completed investigation (mirrors mockData.ts).
-        self.reports[inv.id] = self._build_demo_report(inv, "Acme Corp")
-
-    def _create_org(self, name: str, issuer: str) -> int:
-        org_id = self._next_org_id
-        self._next_org_id += 1
-        self.organizations[org_id] = {"id": org_id, "name": name, "issuer": issuer}
-        return org_id
+        self.session.flush()
+        return token
 
     # ── Organizations ───────────────────────────────────────────────
     def list_organizations(self) -> list[dict[str, Any]]:
-        return sorted(self.organizations.values(), key=lambda o: o["id"])
+        rows = self.session.execute(
+            select(orm.OrganizationRow).order_by(orm.OrganizationRow.id)
+        ).scalars()
+        return [{"id": r.id, "name": r.name, "issuer": r.issuer} for r in rows]
 
     def create_organization(self, name: str, issuer: str) -> dict[str, Any]:
-        org_id = self._create_org(name, issuer)
-        return self.organizations[org_id]
+        row = orm.OrganizationRow(name=name, issuer=issuer)
+        self.session.add(row)
+        self.session.flush()
+        return {"id": row.id, "name": row.name, "issuer": row.issuer}
 
     def delete_organization(self, org_id: int) -> bool:
-        return self.organizations.pop(org_id, None) is not None
+        row = self.session.get(orm.OrganizationRow, org_id)
+        if row is None:
+            return False
+        self.session.delete(row)
+        return True
 
     # ── Investigations ──────────────────────────────────────────────
     def list_investigations(self) -> list[dict[str, Any]]:
-        return [
-            {"id": inv.id, "status": inv.status}
-            for inv in sorted(self.investigations.values(), key=lambda i: i.id)
-        ]
+        rows = self.session.execute(
+            select(orm.InvestigationRow).order_by(orm.InvestigationRow.id)
+        ).scalars()
+        return [{"id": r.id, "status": r.status} for r in rows]
 
     def create_investigation(
         self,
@@ -300,94 +317,242 @@ class InMemoryStore:
         databases: list[str] | None,
         lookback_hours: int,
     ) -> Investigation:
-        inv = Investigation(
-            id=self._next_investigation_id,
+        row = orm.InvestigationRow(
             status="draft",
             server_host=server_host,
             server_port=server_port,
             auth_type=auth_type,
             databases=databases,
             lookback_hours=lookback_hours,
+            created_at=_now(),
         )
-        self._next_investigation_id += 1
-        self.investigations[inv.id] = inv
-        self.approvals.setdefault(inv.id, {})
-        return inv
+        self.session.add(row)
+        self.session.flush()
+        return _inv_from(row)
 
     def get_investigation(self, inv_id: int) -> Investigation | None:
-        return self.investigations.get(inv_id)
+        row = self.session.get(orm.InvestigationRow, inv_id)
+        return _inv_from(row) if row is not None else None
+
+    def set_investigation_status(self, inv_id: int, status: str) -> None:
+        row = self.session.get(orm.InvestigationRow, inv_id)
+        if row is not None:
+            row.status = status
+            self.session.flush()
 
     # ── Approvals ───────────────────────────────────────────────────
     def get_approvals(self, inv_id: int) -> dict[str, ApprovalDecision] | None:
-        if inv_id not in self.investigations:
+        if self.session.get(orm.InvestigationRow, inv_id) is None:
             return None
-        return self.approvals.setdefault(inv_id, {})
+        return self._query_approvals(inv_id)
+
+    def _query_approvals(self, inv_id: int) -> dict[str, ApprovalDecision]:
+        rows = self.session.execute(
+            select(orm.ApprovalDecisionRow).where(
+                orm.ApprovalDecisionRow.investigation_id == inv_id
+            )
+        ).scalars()
+        return {r.catalog_id: _decision_from(r) for r in rows}
+
+    def record_approvals(
+        self,
+        inv_id: int,
+        decisions: dict[str, str],
+        actor: str,
+        note: str | None,
+    ) -> dict[str, ApprovalDecision]:
+        now = _now()
+        for catalog_id, decision in decisions.items():
+            row = self.session.execute(
+                select(orm.ApprovalDecisionRow).where(
+                    orm.ApprovalDecisionRow.investigation_id == inv_id,
+                    orm.ApprovalDecisionRow.catalog_id == catalog_id,
+                )
+            ).scalar_one_or_none()
+            if row is None:
+                self.session.add(
+                    orm.ApprovalDecisionRow(
+                        investigation_id=inv_id,
+                        catalog_id=catalog_id,
+                        decision=decision,
+                        actor=actor,
+                        note=note,
+                        created_at=now,
+                    )
+                )
+            else:
+                row.decision = decision
+                row.actor = actor
+                row.note = note
+                row.created_at = now
+        self.session.flush()
+        return self._query_approvals(inv_id)
 
     # ── Jobs ────────────────────────────────────────────────────────
     def create_job(self, investigation_id: int) -> Job:
-        job_id = f"job-{investigation_id}-{len(self.jobs) + 1}"
-        job = Job(job_id=job_id, status="queued", investigation_id=investigation_id)
-        self.jobs[job_id] = job
-        return job
+        job_id = f"job-{investigation_id}-{uuid.uuid4().hex[:8]}"
+        row = orm.JobRow(
+            job_id=job_id, status="queued", investigation_id=investigation_id
+        )
+        self.session.add(row)
+        self.session.flush()
+        return _job_from(row)
 
     def get_job(self, job_id: str) -> Job | None:
-        return self.jobs.get(job_id)
+        row = self.session.get(orm.JobRow, job_id)
+        return _job_from(row) if row is not None else None
+
+    def update_job(
+        self,
+        job_id: str,
+        *,
+        status: str | None = None,
+        result: Any | None = None,
+        error: str | None = None,
+    ) -> Job | None:
+        row = self.session.get(orm.JobRow, job_id)
+        if row is None:
+            return None
+        if status is not None:
+            row.status = status
+        if result is not None:
+            row.result = result
+        if error is not None:
+            row.error = error
+        self.session.flush()
+        return _job_from(row)
 
     # ── Reports ─────────────────────────────────────────────────────
     def get_report(self, inv_id: int) -> dict[str, Any] | None:
-        return self.reports.get(inv_id)
+        row = self.session.get(orm.ReportRow, inv_id)
+        return dict(row.payload) if row is not None else None
 
     def generate_report(self, inv: Investigation, organization: str) -> dict[str, Any]:
-        """Build a demo report for an investigation and store it."""
-        report = self._build_demo_report(inv, organization)
-        self.reports[inv.id] = report
+        """Build a demo report for an investigation and persist it."""
+        report = build_demo_report(inv, organization)
+        row = self.session.get(orm.ReportRow, inv.id)
+        if row is None:
+            self.session.add(
+                orm.ReportRow(investigation_id=inv.id, payload=report)
+            )
+        else:
+            row.payload = report
+        self.session.flush()
         return report
 
-    # ── Report builder (demo content) ───────────────────────────────
-    def _build_demo_report(self, inv: Investigation, organization: str) -> dict[str, Any]:
-        now = datetime.now(UTC).isoformat()
-        return {
-            "investigation_id": inv.id,
-            "organization": organization,
-            "server_host": inv.server_host,
-            "server_port": inv.server_port,
-            "database_scope": "instance" if not inv.databases else "databases",
-            "databases": inv.databases or [],
-            "lookback_hours": inv.lookback_hours,
-            "investigation_time": now,
-            "data_sources": [
-                {
-                    "source_id": e.id,
-                    "title": e.title,
-                    "category": e.category,
-                    "issue_area": e.issue_area,
-                    "status": "collected",
-                    "checked": True,
-                    "note": "",
-                }
-                for e in CATALOG
-            ],
-            "findings_by_area": [],
-            "primary_cause": {
-                "title": "No primary cause determined",
-                "description": "Demo report generated by the in-memory store.",
-                "confidence_percent": 0,
-                "confidence_label": "low",
-            },
-            "alternatives": [],
+
+# ── Report builder (demo content) ───────────────────────────────────
+def build_demo_report(inv: Investigation, organization: str) -> dict[str, Any]:
+    now = _now()
+    return {
+        "investigation_id": inv.id,
+        "organization": organization,
+        "server_host": inv.server_host,
+        "server_port": inv.server_port,
+        "database_scope": "instance" if not inv.databases else "databases",
+        "databases": inv.databases or [],
+        "lookback_hours": inv.lookback_hours,
+        "investigation_time": now,
+        "data_sources": [
+            {
+                "source_id": e.id,
+                "title": e.title,
+                "category": e.category,
+                "issue_area": e.issue_area,
+                "status": "collected",
+                "checked": True,
+                "note": "",
+            }
+            for e in CATALOG
+        ],
+        "findings_by_area": [],
+        "primary_cause": {
+            "title": "No primary cause determined",
+            "description": "Demo report generated by the backend.",
             "confidence_percent": 0,
             "confidence_label": "low",
-            "severity": "low",
-            "rationale": "This is a seeded demo report from the in-memory backend.",
-            "inconclusive": True,
-            "coverage_gaps": [],
-            "recommendations": [],
-            "validation_checks": [],
-            "remediation": [],
-            "read_only_disclaimer": "recommendation only, execute at the DBA's discretion",
-        }
+        },
+        "alternatives": [],
+        "confidence_percent": 0,
+        "confidence_label": "low",
+        "severity": "low",
+        "rationale": "This is a seeded demo report.",
+        "inconclusive": True,
+        "coverage_gaps": [],
+        "recommendations": [],
+        "validation_checks": [],
+        "remediation": [],
+        "read_only_disclaimer": "recommendation only, execute at the DBA's discretion",
+    }
 
 
-def get_store(request: Request) -> InMemoryStore:
-    """FastAPI dependency returning the app's store singleton."""
-    return request.app.state.store
+# ── Seeding (runs once, on an empty database) ───────────────────────
+def seed_database(session: Session) -> None:
+    """Insert demo data into an empty database; no-op if already seeded."""
+    if (
+        session.execute(select(orm.UserRow).limit(1)).scalar_one_or_none()
+        is not None
+    ):
+        return
+
+    session.add(
+        orm.OrganizationRow(name="Acme Corp", issuer="https://idp.acme.example")
+    )
+
+    salt, digest = hash_password("dba-password")
+    session.add(
+        orm.UserRow(
+            username="dba",
+            organization="Acme Corp",
+            actor="dba@acme.example",
+            password_salt=salt,
+            password_hash=digest,
+        )
+    )
+    salt2, digest2 = hash_password("admin-password")
+    session.add(
+        orm.UserRow(
+            username="admin",
+            organization="Acme Corp",
+            actor="admin@acme.example",
+            password_salt=salt2,
+            password_hash=digest2,
+        )
+    )
+
+    # A completed investigation (id 1) with approvals and a report, so the
+    # dashboard and report view have data to show immediately.
+    inv_row = orm.InvestigationRow(
+        status="completed",
+        server_host="sql01.acme.example",
+        server_port=1433,
+        auth_type="ad",
+        databases=None,
+        lookback_hours=4,
+        created_at=_now(),
+    )
+    session.add(inv_row)
+    session.flush()  # assign inv_row.id
+
+    now = _now()
+    for entry in CATALOG:
+        session.add(
+            orm.ApprovalDecisionRow(
+                investigation_id=inv_row.id,
+                catalog_id=entry.id,
+                decision="approved",
+                actor="dba@acme.example",
+                note=None,
+                created_at=now,
+            )
+        )
+
+    inv = _inv_from(inv_row)
+    session.add(
+        orm.ReportRow(investigation_id=inv.id, payload=build_demo_report(inv, "Acme Corp"))
+    )
+
+
+def get_store(db: Session = Depends(get_db)) -> DatabaseStore:
+    """FastAPI dependency returning a store bound to the request's session."""
+    return DatabaseStore(db)

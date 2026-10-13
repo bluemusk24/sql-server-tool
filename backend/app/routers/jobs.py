@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.auth import CurrentUser, get_current_user
 from app.models import JobStatusResponse
-from app.store import InMemoryStore, get_store
+from app.store import DatabaseStore, get_store
 
 router = APIRouter(tags=["jobs"])
 
@@ -24,7 +24,7 @@ def _to_response(job) -> JobStatusResponse:
 @router.get("/jobs/{job_id}", response_model=JobStatusResponse)
 def get_job(
     job_id: str,
-    store: InMemoryStore = Depends(get_store),
+    store: DatabaseStore = Depends(get_store),
     _: CurrentUser = Depends(get_current_user),
 ) -> JobStatusResponse:
     job = store.get_job(job_id)
@@ -36,12 +36,12 @@ def get_job(
 @router.post("/jobs/{job_id}/cancel", response_model=JobStatusResponse)
 def cancel_job(
     job_id: str,
-    store: InMemoryStore = Depends(get_store),
+    store: DatabaseStore = Depends(get_store),
     _: CurrentUser = Depends(get_current_user),
 ) -> JobStatusResponse:
     job = store.get_job(job_id)
     if job is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
     if job.status in ("queued", "running"):
-        job.status = "canceled"
+        job = store.update_job(job_id, status="canceled") or job
     return _to_response(job)

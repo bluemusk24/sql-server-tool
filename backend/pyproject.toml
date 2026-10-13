@@ -5,8 +5,10 @@ description = "SQL Server Diagnostic Assistant"
 readme = "../README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "alembic>=1.20.0",
     "fastapi>=0.143.0",
     "httpx>=0.28.1",
+    "sqlalchemy>=2.1.4",
     "uvicorn>=0.54.0",
 ]
 

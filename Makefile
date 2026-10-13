@@ -8,7 +8,7 @@
 .PHONY: help run mock backend frontend setup install test \
         backend-install backend-test backend-lint backend-format \
         frontend-install frontend-test frontend-typecheck frontend-build \
-        token clean
+        migrate migrate-new migrate-down token clean
 
 # ── Configuration ────────────────────────────────────────────────────
 BACKEND_DIR   := backend
@@ -102,6 +102,18 @@ frontend-typecheck: ## Type-check frontend (tsc)
 
 frontend-build: ## Type-check and build frontend for production
 	cd "$(FRONTEND_DIR)" && npm run build
+
+# ── Database migrations (Alembic) ────────────────────────────────────
+# The app bootstraps tables itself on startup (create_all) and stamps the
+# Alembic baseline, so migrations are only needed when you *change* models.
+migrate: ## Apply database migrations (alembic upgrade head)
+	cd "$(BACKEND_DIR)" && uv run alembic upgrade head
+
+migrate-new: ## Generate a new migration from model changes (usage: make migrate-new MSG="...")
+	cd "$(BACKEND_DIR)" && uv run alembic revision --autogenerate -m "$(MSG)"
+
+migrate-down: ## Revert the last migration (alembic downgrade -1)
+	cd "$(BACKEND_DIR)" && uv run alembic downgrade -1
 
 # ── Utilities ────────────────────────────────────────────────────────
 token: ## Print a bearer token (seeded dba user; backend must be running)

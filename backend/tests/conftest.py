@@ -1,4 +1,4 @@
-"""Shared fixtures: an in-process TestClient over a fresh store."""
+"""Shared fixtures: an in-process TestClient over a fresh in-memory database."""
 
 from __future__ import annotations
 
@@ -10,10 +10,13 @@ from app.main import create_app
 # Seeded demo credentials (see app/store.py).
 DBA = ("dba", "dba-password")
 
+# Each test gets its own isolated, empty SQLite database.
+TEST_DATABASE_URL = "sqlite:///:memory:"
+
 
 @pytest.fixture()
 def client() -> TestClient:
-    app = create_app()
+    app = create_app(database_url=TEST_DATABASE_URL)
     with TestClient(app) as c:
         yield c
 

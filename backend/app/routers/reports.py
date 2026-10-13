@@ -11,7 +11,7 @@ from fastapi.responses import Response
 
 from app.auth import CurrentUser, get_current_user
 from app.pdf import render_pdf
-from app.store import InMemoryStore, get_store
+from app.store import DatabaseStore, get_store
 
 router = APIRouter(tags=["reports"])
 
@@ -37,7 +37,7 @@ def _report_lines(report: dict) -> list[str]:
 @router.get("/reports/{inv_id}.pdf")
 def download_report_pdf(
     inv_id: int,
-    store: InMemoryStore = Depends(get_store),
+    store: DatabaseStore = Depends(get_store),
     _: CurrentUser = Depends(get_current_user),
 ) -> Response:
     report = store.get_report(inv_id)
@@ -56,7 +56,7 @@ def download_report_pdf(
 @router.get("/reports/{inv_id}")
 def get_report(
     inv_id: int,
-    store: InMemoryStore = Depends(get_store),
+    store: DatabaseStore = Depends(get_store),
     _: CurrentUser = Depends(get_current_user),
 ) -> dict:
     report = store.get_report(inv_id)

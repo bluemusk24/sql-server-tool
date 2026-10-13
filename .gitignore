@@ -28,6 +28,11 @@ Thumbs.db
 .coverage
 htmlcov/
 
+# Database (SQLite)
+*.db
+*.sqlite3
+backend/*.db
+
 # Environment
 .env
 .env.local
