@@ -24,17 +24,25 @@ AGENTS.md
 
 ## Backend
 
+A FastAPI app with an in-memory store (seeded with demo data) implementing
+`openapi.yaml`. It uses hashed passwords and bearer tokens; there is no
+database yet.
+
 ```bash
 cd backend
 uv sync                        # install dependencies
 uv run pytest                  # run the test suite
 uv run ruff check .            # lint
 uv run uvicorn app.main:app --reload   # run the API (default :8000)
-arq app.worker.WorkerSettings          # run the background worker
 ```
 
-Configuration comes from environment variables (see `backend/.env.example`);
-`.env` is git-ignored and never committed.
+Log in to get a token:
+
+```bash
+curl -X POST localhost:8000/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"dba","password":"dba-password"}'
+```
 
 ## Frontend
 

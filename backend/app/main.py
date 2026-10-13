@@ -1,55 +1,42 @@
-"""FastAPI application entrypoint."""
+"""FastAPI application factory and module-level ASGI app.
 
-from typing import Any
+Wires the routers, CORS (so the Vite dev server on :5173 can call the API),
+and attaches the in-memory store to ``app.state``. Tests build a fresh app
+via ``create_app()`` so each gets its own store.
+"""
 
-from fastapi import FastAPI, HTTPException
+from __future__ import annotations
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
-from app.config import Settings, load_settings
-from app.diagnostics.catalog import load_catalog
-from app.investigations.router import router as investigations_router
-from app.jobs.router import router as jobs_router
-from app.logging_setup import configure_logging
-from app.persistence import SqlAlchemyAuditWriter
-from app.report.repository import SqlAlchemyReportRepository
-from app.report.router import router as reports_router
+from app.routers import auth, health, investigations, jobs, orgs, reports
+from app.store import InMemoryStore
 
 
-def create_app(settings: Settings) -> FastAPI:
-    configure_logging()
+def create_app(store: InMemoryStore | None = None) -> FastAPI:
     app = FastAPI(title="SQL Server Diagnostic Assistant", version=__version__)
-    app.state.settings = settings
 
-    # Explicit, fail-fast load of the read-only catalog (no import-time I/O).
-    catalog = load_catalog()
-    app.state.catalog = catalog
-    # Wire default persistent implementations for #21 (overridable in tests)
-    app.state.audit_writer = SqlAlchemyAuditWriter()
-    app.state.report_repository = SqlAlchemyReportRepository()
+    # Allow the Vite dev server to call the API with credentials.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
-    app.include_router(investigations_router)
-    app.include_router(jobs_router)
-    app.include_router(reports_router)
+    app.state.store = store if store is not None else InMemoryStore()
 
-    @app.get("/health")
-    def health() -> dict[str, str]:
-        return {"status": "ok", "version": __version__}
-
-    @app.get("/catalog")
-    def list_catalog() -> list[dict[str, Any]]:
-        """The full ordered catalog for DBA review, SQL text echoed verbatim."""
-        return [entry.to_dict() for entry in catalog.all()]
-
-    @app.get("/catalog/{query_id}")
-    def get_catalog_entry(query_id: str) -> dict[str, Any]:
-        """One catalog entry by id, or 404 when it is not in the catalog."""
-        entry = catalog.get(query_id)
-        if entry is None:
-            raise HTTPException(status_code=404, detail="catalog query not found")
-        return entry.to_dict()
+    app.include_router(health.router)
+    app.include_router(auth.router)
+    app.include_router(investigations.router)
+    app.include_router(jobs.router)
+    app.include_router(reports.router)
+    app.include_router(orgs.router)
 
     return app
 
 
-settings = load_settings()
-app = create_app(settings)
+app = create_app()

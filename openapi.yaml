@@ -7,9 +7,10 @@ info:
     is listed here with its method, path, request body, response body, and
     whether it requires an authenticated session.
 
-    Authentication is session-cookie based (`credentials: "include"`). The
-    frontend resolves the session via `GET /auth/session`; unauthenticated
-    requests to protected endpoints return 401/403.
+    Authentication is bearer-token based. `POST /auth/login` exchanges a
+    username/password for a token; subsequent requests send
+    `Authorization: Bearer <token>`. Unauthenticated requests to protected
+    endpoints return 401.
 
     The frontend talks to this API through a single `ServiceClient` interface
     (see `frontend/src/services/`). The mock implementation mirrors these
@@ -20,7 +21,9 @@ servers:
       /investigations, /jobs, /reports to here)
 tags:
   - name: auth
-    description: OIDC session and authorization
+    description: Username/password login and bearer-token session
+  - name: health
+    description: Liveness probe
   - name: investigations
     description: Create and manage investigations
   - name: approvals
@@ -34,15 +37,41 @@ tags:
 
 # ── Auth ─────────────────────────────────────────────────────────────
 paths:
+  /auth/login:
+    post:
+      tags: [auth]
+      summary: Log in with username and password
+      description: |
+        Exchanges credentials for a bearer token. Passwords are stored
+        hashed (PBKDF2); the token is opaque and sent on subsequent
+        requests as `Authorization: Bearer <token>`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Bearer token issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenResponse"
+        "401":
+          description: Invalid username or password
+
   /auth/session:
     get:
       tags: [auth]
       summary: Current session indicator
       description: |
         The frontend calls this on mount to resolve the caller. Returns the
-        session when authenticated; returns 404 when not (the frontend then
-        shows the login screen).
-      security: []
+        session for a valid bearer token; returns 401 when unauthenticated
+        (the frontend then shows the login screen).
+      security:
+        - bearerAuth: []
       responses:
         "200":
           description: Session resolved
@@ -50,8 +79,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Session"
-        "404":
-          description: No session (unauthenticated)
+        "401":
+          description: No/invalid token (unauthenticated)
 
   /auth/authorize:
     get:
@@ -91,7 +120,7 @@ paths:
       summary: List investigations
       description: Dashboard list of investigations (id + status only).
       security:
-        - sessionCookie: []
+        - bearerAuth: []
       responses:
         "200":
           description: List of investigations
@@ -109,7 +138,7 @@ paths:
         Persists a new investigation and returns its id, status, and the
         full review catalog. Never stores credentials.
       security:
-        - sessionCookie: []
+        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -134,7 +163,7 @@ paths:
       summary: Get investigation
       description: Returns the investigation with its catalog.
       security:
-        - sessionCookie: []
+        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -157,7 +186,7 @@ paths:
       summary: Get approval state
       description: Returns per-query decisions and the computed state.
       security:
-        - sessionCookie: []
+        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -181,7 +210,7 @@ paths:
         The response reflects the server's computed state, not a local
         guess. A 409 means the run already started (read-only).
       security:
-        - sessionCookie: []
+        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -216,7 +245,7 @@ paths:
         Enqueues one diagnostic run behind the approval gate. Returns 202
         with the arq job id without waiting on the run.
       security:
-        - sessionCookie: []
+        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -240,7 +269,7 @@ paths:
       summary: Job status
       description: Current status of a job (result on success, error on failure).
       security:
-        - sessionCookie: []
+        - bearerAuth: []
       parameters:
         - name: job_id
           in: path
@@ -264,7 +293,7 @@ paths:
         Cancels a queued or running job. Returns the updated status
         (canceled).
       security:
-        - sessionCookie: []
+        - bearerAuth: []
       parameters:
         - name: job_id
           in: path
@@ -289,7 +318,7 @@ paths:
         Returns the full report payload (plan.md §8) for the dashboard.
         Credential-free by construction.
       security:
-        - sessionCookie: []
+        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -311,7 +340,7 @@ paths:
       summary: Download PDF
       description: Returns the investigation's report as a downloadable PDF.
       security:
-        - sessionCookie: []
+        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -336,7 +365,7 @@ paths:
       tags: [orgs]
       summary: List organizations
       security:
-        - sessionCookie: []
+        - bearerAuth: []
       responses:
         "200":
           description: List of organizations
@@ -351,7 +380,7 @@ paths:
       tags: [orgs]
       summary: Create organization
       security:
-        - sessionCookie: []
+        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -372,7 +401,7 @@ paths:
       summary: Deprovision organization
       description: Removes the org's database and data.
       security:
-        - sessionCookie: []
+        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -387,16 +416,30 @@ paths:
 # ── Schemas ──────────────────────────────────────────────────────────
 components:
   securitySchemes:
-    sessionCookie:
-      type: apiKey
-      in: cookie
-      name: session
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
       description: |
-        Session cookie set after OIDC login. The frontend sends it via
-        `credentials: "include"`. All endpoints except /health and
-        /auth/* require it.
+        Bearer token obtained from `POST /auth/login`. Send it as
+        `Authorization: Bearer <token>`. All endpoints except /health,
+        /auth/login, and /auth/authorize require it.
 
   schemas:
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string, example: dba }
+        password: { type: string, format: password }
+
+    TokenResponse:
+      type: object
+      required: [access_token, token_type]
+      properties:
+        access_token: { type: string }
+        token_type: { type: string, example: bearer }
+
     Session:
       type: object
       required: [organization, actor]
