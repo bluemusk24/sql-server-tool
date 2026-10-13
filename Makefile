@@ -29,7 +29,23 @@ help: ## Show this help (default target)
 	@echo
 
 # ── Run ──────────────────────────────────────────────────────────────
+# Fail fast if a port is already taken: a leftover `make run` (or any
+# other process) squatting on :8000/:5173 otherwise makes the new
+# backend die with "Address already in use" while the health-check loop
+# spins silently for a minute. Check the ports BEFORE starting anything.
+define require_free_port
+	@if ss -ltn 2>/dev/null | grep -q ':$(1) '; then \
+	  echo "Error: port $(1) is already in use."; \
+	  echo "  A previous 'make run' (or another server) is still running."; \
+	  echo "  Stop it with Ctrl+C in its terminal, or free the port:"; \
+	  echo "    fuser -k $(1)/tcp    # or: kill <pid-of-that-process>"; \
+	  exit 1; \
+	fi
+endef
+
 run: ## Start the whole stack: backend (:8000) + frontend (:5173, real mode)
+	$(call require_free_port,8000)
+	$(call require_free_port,5173)
 	@BACKEND_PID=""; \
 	cleanup() { [ -n "$$BACKEND_PID" ] && kill "$$BACKEND_PID" 2>/dev/null || true; rm -f "$(BACKEND_LOG).pid"; }; \
 	trap cleanup EXIT INT TERM; \
@@ -37,15 +53,17 @@ run: ## Start the whole stack: backend (:8000) + frontend (:5173, real mode)
 	nohup sh -c 'cd "$(BACKEND_DIR)" && exec uv run uvicorn app.main:app --reload --port $(BACKEND_PORT)' >"$(BACKEND_LOG)" 2>&1 & \
 	BACKEND_PID=$$!; echo "$$BACKEND_PID" >"$(BACKEND_LOG).pid"; \
 	echo -n "Waiting for backend"; \
-	for i in $$(seq 1 120); do \
+	for i in $$(seq 1 60); do \
 	  if curl -sf $(BACKEND_URL)/health >/dev/null 2>&1; then echo " ready"; break; fi; \
+	  if ! kill -0 "$$BACKEND_PID" 2>/dev/null; then echo " failed"; echo "Backend exited early - see $(BACKEND_LOG)"; exit 1; fi; \
 	  echo -n "."; sleep 0.5; \
 	done; \
-	if ! curl -sf $(BACKEND_URL)/health >/dev/null 2>&1; then echo " backend did not become healthy — check $(BACKEND_LOG)"; fi; \
+	if ! curl -sf $(BACKEND_URL)/health >/dev/null 2>&1; then echo " backend did not become healthy — check $(BACKEND_LOG)"; exit 1; fi; \
 	echo "Starting frontend on $(FRONTEND_URL) in real mode — press Ctrl+C to stop both."; \
 	cd "$(FRONTEND_DIR)" && VITE_USE_MOCK=false npm run dev
 
 mock: ## Start the frontend against its in-memory mock (no backend)
+	$(call require_free_port,5173)
 	cd "$(FRONTEND_DIR)" && npm run dev
 
 backend: ## Run only the backend API on :8000
