@@ -108,12 +108,17 @@ frontend-build: ## Type-check and build frontend for production
 
 # ── Container (single image: API + frontend) ─────────────────────────
 # The frontend is built with Node and served by the API itself (#35),
-# so one container runs the whole product. Requires Docker.
+# so one container runs the whole product. The named volume sdip-data
+# keeps the SQLite database between container runs. Requires Docker.
 image: ## Build the single-image container (API serves the frontend)
-	docker build -t sqldiag:local .
+	docker build -t sdip:latest .
 
-container: image ## Build and run the container on :8000 (Ctrl+C stops it)
-	docker run --rm -p 8000:8000 sqldiag:local
+container: image ## Build and run the sdip container on :8000 (Ctrl+C stops it)
+	-docker rm -f sdip 2>/dev/null
+	docker run --rm -p 8000:8000 \
+	  -v sdip-data:/data \
+	  -e SDIP_DATABASE_URL=sqlite:////data/sdip.db \
+	  --name sdip sdip:latest
 
 # ── Database migrations (Alembic) ────────────────────────────────────
 # The app bootstraps tables itself on startup (create_all) and stamps the

@@ -1,12 +1,20 @@
-# syntax=docker/dockerfile:1
-# SQL Server Diagnostic Assistant — single image, whole product (#35).
+# SQL Server Diagnostic Assistant ("SDIP") — single image, whole product (#35).
+#
+# No `# syntax=` directive on purpose: every feature used here (multi-stage,
+# COPY --from an image, HEALTHCHECK) is core Dockerfile, and skipping the
+# external docker/dockerfile frontend avoids a BuildKit gRPC failure seen
+# on some Docker Desktop installs.
 #
 # Build from the repository root:
-#   docker build -t sqldiag:local .
-#   docker run --rm -p 8000:8000 sqldiag:local
+#   docker build -t sdip:latest .
+#   docker run --rm -p 8000:8000 \
+#     -v sdip-data:/data \
+#     -e SDIP_DATABASE_URL=sqlite:////data/sdip.db \
+#     --name sdip sdip:latest
 # then open http://localhost:8000 — FastAPI serves both the API and the
-# built SPA (same origin), so one container runs everything. That is the
-# shape Render's free web service wants (see render.yaml, #33).
+# built SPA (same origin), so one container runs everything. The named
+# volume sdip-data keeps the SQLite database between container runs.
+# That is the shape Render's free web service wants (see render.yaml, #33).
 #
 # Stage 1 builds the frontend with Node; stage 2 is the API image from
 # backend/Dockerfile with the static bundle dropped in. Keep the runtime
@@ -33,7 +41,9 @@ ENV VITE_USE_MOCK=false \
 RUN npm run build
 
 # ── Stage 2: API + static bundle ────────────────────────────────────
-FROM python:3.11-slim
+# Pinned to bookworm: trixie renamed libgssapi-krb5-3 (→ -2), and the
+# Microsoft repo below targets Debian 12 anyway.
+FROM python:3.11-slim-bookworm
 
 ENV PYTHONUNBUFFERED=1 \
     UV_LINK_MODE=copy \
@@ -47,7 +57,7 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 # enables Active Directory integrated auth.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        ca-certificates curl gnupg unixodbc libgssapi-krb5-3 \
+        ca-certificates curl gnupg unixodbc libgssapi-krb5-2 \
     && curl -fsSL https://packages.microsoft.com/keys/microsoft.asc \
         | gpg --dearmor -o /usr/share/keyrings/microsoft.gpg \
     && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/microsoft.gpg] https://packages.microsoft.com/debian/12/prod bookworm main" \
@@ -74,10 +84,14 @@ COPY --from=frontend-build /src/frontend/dist /app/frontend
 ENV FRONTEND_DIST=/app/frontend
 
 # Non-root, and owns /app so the default SQLite file can be created
-# there. Mount a volume at /data and set
-# DATABASE_URL=sqlite:////data/sqlserver_tool.db for persistence, or
-# point DATABASE_URL at a Postgres instance (#33).
-RUN useradd --create-home --uid 1000 appuser && chown -R appuser:appuser /app
+# there. /data exists in the image (owned by appuser) so a named volume
+# mounted there — e.g. `-v sdip-data:/data` with
+# SDIP_DATABASE_URL=sqlite:////data/sdip.db — inherits usable
+# permissions on first mount and survives container runs. Point
+# SDIP_DATABASE_URL (or DATABASE_URL) at Postgres for #33.
+RUN useradd --create-home --uid 1000 appuser \
+    && mkdir -p /data \
+    && chown -R appuser:appuser /app /data
 USER appuser
 
 EXPOSE 8000

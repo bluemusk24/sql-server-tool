@@ -1,8 +1,9 @@
 """Database wiring: engine, session factory, and the request-scoped session.
 
-The database is chosen entirely by the ``DATABASE_URL`` environment variable
-(SQLite by default). Because everything goes through SQLAlchemy, pointing the
-app at Postgres later is just a matter of changing that one variable.
+The database is chosen by the ``SDIP_DATABASE_URL`` environment variable
+(then ``DATABASE_URL``, then a SQLite default). Because everything goes
+through SQLAlchemy, pointing the app at Postgres later is just a matter
+of changing that one variable.
 """
 
 from __future__ import annotations
@@ -22,8 +23,18 @@ DEFAULT_DATABASE_URL = "sqlite:///./sqlserver_tool.db"
 
 
 def get_database_url() -> str:
-    """Resolve the configured database URL (env var, with a SQLite default)."""
-    return os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL)
+    """Resolve the configured database URL.
+
+    ``SDIP_DATABASE_URL`` is the product-prefixed name used by the
+    container run command (``-e SDIP_DATABASE_URL=sqlite:////data/sdip.db``);
+    plain ``DATABASE_URL`` remains supported for local shells and other
+    platforms. SQLite is the default when neither is set.
+    """
+    return (
+        os.getenv("SDIP_DATABASE_URL")
+        or os.getenv("DATABASE_URL")
+        or DEFAULT_DATABASE_URL
+    )
 
 
 def make_engine(database_url: str) -> Engine:

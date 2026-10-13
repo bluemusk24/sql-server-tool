@@ -540,10 +540,22 @@ bundle, then the API image receives it and serves it at `/` behind the API
 routes (`FRONTEND_DIST` → [`backend/app/spa.py`](backend/app/spa.py)):
 
 ```bash
-make image                                   # docker build -t sqldiag:local .
-docker run --rm -p 8000:8000 sqldiag:local   # or: make container
+docker build -t sdip:latest .
+
+docker run --rm -p 8000:8000 \
+  -v sdip-data:/data \
+  -e SDIP_DATABASE_URL=sqlite:////data/sdip.db \
+  --name sdip sdip:latest
 # → http://localhost:8000 serves both the SPA and the API
 ```
+
+Or via make: `make image` (build) and `make container` (build + run).
+
+- The named volume `sdip-data` keeps the SQLite database between
+  container runs; without it, demo data reseeds on every start.
+- `SDIP_DATABASE_URL` is the product-prefixed database setting (plain
+  `DATABASE_URL` also works); point either at Postgres for #33 — the
+  driver is already in the image.
 
 - The bundle is baked with `VITE_USE_MOCK=false` and an empty
   `VITE_API_BASE_URL`, so every call is same-origin — no CORS config at all.
@@ -553,9 +565,9 @@ docker run --rm -p 8000:8000 sqldiag:local   # or: make container
   paths fall back to `index.html` for React Router; real files keep honest
   404s. API routes, `/docs`, and `/openapi.json` always win over the SPA.
 - Persistence: the default SQLite file lives inside the container. Attach a
-  volume and point `DATABASE_URL` at it, e.g.
-  `docker run -p 8000:8000 -v sqldiag-data:/data -e DATABASE_URL=sqlite:////data/sqlserver_tool.db sqldiag:local`,
-  or point `DATABASE_URL` at Postgres (#33) — the driver is already in the image.
+  volume and point `SDIP_DATABASE_URL` at it (the `make container`
+  target does this with the `sdip-data` volume), or point it at
+  Postgres (#33) — the driver is already in the image.
 - Deep links and hard refreshes work on every screen, including the
   paths that collide with API routes (`/investigations`,
   `/investigations/new`, `/jobs/<id>`): browser page loads carry no bearer

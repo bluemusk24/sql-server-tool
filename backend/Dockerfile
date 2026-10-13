@@ -5,7 +5,9 @@
 # the locked uv environment. pyodbc and the Microsoft ODBC Driver 18 are
 # intentionally absent until the live-connection work in #31 lands.
 
-FROM python:3.11-slim
+# Pinned to bookworm: trixie renamed libgssapi-krb5-3 (→ -2), and the
+# Microsoft repo below targets Debian 12 anyway.
+FROM python:3.11-slim-bookworm
 
 ENV PYTHONUNBUFFERED=1 \
     UV_LINK_MODE=copy \
@@ -20,7 +22,7 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 # library enables Active Directory integrated auth.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        ca-certificates curl gnupg unixodbc libgssapi-krb5-3 \
+        ca-certificates curl gnupg unixodbc libgssapi-krb5-2 \
     && curl -fsSL https://packages.microsoft.com/keys/microsoft.asc \
         | gpg --dearmor -o /usr/share/keyrings/microsoft.gpg \
     && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/microsoft.gpg] https://packages.microsoft.com/debian/12/prod bookworm main" \

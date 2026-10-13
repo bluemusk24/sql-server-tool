@@ -3,8 +3,9 @@
 Wires the routers, CORS (so browsers on allowed origins — the local Vite
 dev servers by default, plus any origins listed in ``$CORS_ALLOW_ORIGINS``,
 e.g. a frontend deployed on Vercel — can call the API), and configures the
-database from ``DATABASE_URL`` (SQLite by default). Tests build a fresh app
-via ``create_app(database_url=...)`` so each gets its own isolated database.
+database from ``$SDIP_DATABASE_URL`` (or ``$DATABASE_URL``; SQLite by
+default). Tests build a fresh app via ``create_app(database_url=...)`` so
+each gets its own isolated database.
 """
 
 from __future__ import annotations
