@@ -36,8 +36,12 @@ AGENTS.md
 ### Backend (from `backend/`)
 
 - `uv sync` - install dependencies
+- `uv add <PACKAGE-NAME>` - add a package
+- `uv run python <PYTHON-FILE>` - run a Python file
 - `uv run pytest` - the whole suite
 - `uv run ruff check .` - lint
+- `uv run uvicorn app.main:app --reload` - start the API
+- `uv run arq app.worker.WorkerSettings` - run the background worker
 
 ### Frontend (from `frontend/`)
 
