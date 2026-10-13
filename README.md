@@ -42,6 +42,27 @@ AGENTS.md     # Instructions for coding agents
 
 ## Quickstart
 
+The fastest path uses the [`Makefile`](Makefile) — every common task is a
+single memorable `make` target. From a clean clone:
+
+```bash
+make setup    # install backend (uv) + frontend (npm) dependencies
+make run      # start backend (:8000) + frontend (:5173); Ctrl+C stops both
+```
+
+Open <http://localhost:5173>. By default the frontend uses its built-in mock
+and needs no backend; to exercise the real backend see
+[Mock vs. real backend](#mock-vs-real-backend).
+
+With the backend running, the interactive API docs (Swagger UI) are served at
+<http://127.0.0.1:8000/docs>.
+
+Run `make` (or `make help`) at any time to list every target. See
+[Makefile](#makefile) for the full reference.
+
+<details>
+<summary>Prefer raw commands? They are documented per section below.</summary>
+
 Run the two halves in separate terminals. The backend serves the API on
 `http://localhost:8000`; the frontend dev server runs on
 `http://localhost:5173` and proxies API calls to the backend.
@@ -62,12 +83,7 @@ npm install
 npm run dev                               # http://localhost:5173
 ```
 
-Open <http://localhost:5173>. By default the frontend uses its built-in mock
-and needs no backend; to exercise the real backend see
-[Mock vs. real backend](#mock-vs-real-backend).
-
-With the backend running, the interactive API docs (Swagger UI) are served at
-<http://127.0.0.1:8000/docs>.
+</details>
 
 ---
 
@@ -296,6 +312,60 @@ frontend/src/
   auth/              # Auth context + route guard
   __tests__/         # Vitest tests
 ```
+
+---
+
+## Makefile
+
+Every common task is wrapped as a `make` target so you don't have to remember
+the underlying commands. Run `make` (or `make help`) to list them at any time.
+
+### Everyday commands
+
+| Command | What it does |
+| ------- | ------------ |
+| `make` / `make help` | List all targets (this is the default target). |
+| `make setup` | Install backend (`uv sync`) and frontend (`npm install`) dependencies. |
+| `make run` | Start the **whole stack** — backend on `:8000` and frontend on `:5173`. Press Ctrl+C to stop both. |
+| `make test` | Run the backend (pytest) and frontend (vitest) test suites. |
+| `make token` | Print a bearer token for the seeded `dba` user (backend must be running). |
+| `make clean` | Remove caches and the frontend build output. |
+
+### Run one half
+
+| Command | What it does |
+| ------- | ------------ |
+| `make backend` | Run only the backend API on `:8000`. |
+| `make frontend` | Run only the frontend dev server on `:5173`. |
+
+### Backend
+
+| Command | What it does |
+| ------- | ------------ |
+| `make backend-install` | Install backend dependencies (`uv sync`). |
+| `make backend-test` | Run backend tests (`uv run pytest`). |
+| `make backend-lint` | Lint the backend (`uv run ruff check .`). |
+| `make backend-format` | Format backend code (`uv run ruff format .`). |
+
+### Frontend
+
+| Command | What it does |
+| ------- | ------------ |
+| `make frontend-install` | Install frontend dependencies (`npm install`). |
+| `make frontend-test` | Run frontend tests (`npm test`). |
+| `make frontend-typecheck` | Type-check the frontend (`npm run typecheck`). |
+| `make frontend-build` | Type-check and build the frontend for production (`npm run build`). |
+
+### How `make run` works
+
+`make run` starts the backend in the background (logging to
+`/tmp/sql-server-tool-backend.log`), waits for it to become healthy, then starts
+the frontend in the foreground. Ctrl+C tears down both — a shell `trap` kills the
+background backend so nothing is left running. Prefer to control them separately?
+Use `make backend` and `make frontend` in two terminals instead.
+
+Targets that wrap `uv` or `npm` run them from the correct directory for you, so
+you never need to `cd` first.
 
 ---
 
