@@ -1,8 +1,9 @@
 /**
  * Investigation list.
  *
- * Shows every investigation in the shared backend store with a link to
- * the right next screen based on status:
+ * Shows every investigation in the shared backend store — naming the
+ * SQL Server it targets (#34) — with a link to the right next screen
+ * based on status:
  *   - draft / pending_approval → approval screen
  *   - completed → report
  * A "refresh" button re-fetches, which is how a second browser window
@@ -67,7 +68,11 @@ export function InvestigationList() {
                 return (
                   <li key={inv.id}>
                     <span>
-                      #{inv.id} — <strong>{inv.status}</strong>
+                      #{inv.id} —{" "}
+                      <strong>
+                        {inv.server_host}:{inv.server_port}
+                      </strong>{" "}
+                      — <strong>{inv.status}</strong>
                     </span>{" "}
                     <Link to={link.to}>{link.label}</Link>
                   </li>

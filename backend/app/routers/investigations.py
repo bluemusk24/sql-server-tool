@@ -7,6 +7,7 @@ once a run has started, and a run cannot start until the gate is approved.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -28,12 +29,29 @@ from app.store import ApprovalDecision, DatabaseStore, Investigation, get_store
 
 router = APIRouter(tags=["investigations"])
 
+# Backend-side visibility (#34): uvicorn's access log shows paths only, so
+# these lines record *which* server each investigation targets. They name
+# the host/port/auth — never credentials.
+logger = logging.getLogger("sqldiag.investigations")
+
 
 def _require_inv(store: DatabaseStore, inv_id: int) -> Investigation:
     inv = store.get_investigation(inv_id)
     if inv is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
     return inv
+
+
+def _inv_target(inv: Investigation) -> dict[str, Any]:
+    """The target-server fields shared by the list and detail models."""
+    return {
+        "server_host": inv.server_host,
+        "server_port": inv.server_port,
+        "auth_type": inv.auth_type,
+        "databases": inv.databases,
+        "lookback_hours": inv.lookback_hours,
+        "created_at": inv.created_at,
+    }
 
 
 def _approval_state(decisions: dict[str, ApprovalDecision]) -> str:
@@ -76,8 +94,7 @@ def list_investigations(
     _: CurrentUser = Depends(get_current_user),
 ) -> list[InvestigationSummary]:
     return [
-        InvestigationSummary(id=row["id"], status=row["status"])
-        for row in store.list_investigations()
+        InvestigationSummary(**row) for row in store.list_investigations()
     ]
 
 
@@ -89,7 +106,7 @@ def list_investigations(
 def create_investigation(
     payload: CreateInvestigationRequest,
     store: DatabaseStore = Depends(get_store),
-    _: CurrentUser = Depends(get_current_user),
+    user: CurrentUser = Depends(get_current_user),
 ) -> InvestigationResponse:
     inv = store.create_investigation(
         server_host=payload.server_host,
@@ -98,8 +115,18 @@ def create_investigation(
         databases=payload.databases,
         lookback_hours=payload.lookback_hours,
     )
+    logger.info(
+        "investigation %s opened for %s:%s (auth=%s, lookback=%sh, scope=%s) by %s",
+        inv.id,
+        inv.server_host,
+        inv.server_port,
+        inv.auth_type,
+        inv.lookback_hours,
+        "all databases" if inv.databases is None else ", ".join(inv.databases),
+        user.actor,
+    )
     return InvestigationResponse(
-        id=inv.id, status=inv.status, catalog=list(inv.catalog)
+        id=inv.id, status=inv.status, catalog=list(inv.catalog), **_inv_target(inv)
     )
 
 
@@ -111,7 +138,7 @@ def get_investigation(
 ) -> InvestigationResponse:
     inv = _require_inv(store, inv_id)
     return InvestigationResponse(
-        id=inv.id, status=inv.status, catalog=list(inv.catalog)
+        id=inv.id, status=inv.status, catalog=list(inv.catalog), **_inv_target(inv)
     )
 
 
@@ -190,6 +217,14 @@ def start_run(
         )
 
     job = store.create_job(inv_id)
+    logger.info(
+        "run started for investigation %s on %s:%s (%s) by %s",
+        inv_id,
+        inv.server_host,
+        inv.server_port,
+        "live collection" if credentials is not None else "demo report",
+        user.actor,
+    )
 
     # Credentials present → live collection (#31). The password lives only
     # in this request frame: it is handed to the driver, never stored, and

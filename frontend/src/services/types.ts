@@ -74,13 +74,27 @@ export interface CreateInvestigationRequest {
   lookback_hours: LookbackHours;
 }
 
-export interface InvestigationResponse {
+/**
+ * The target-server fields returned by every investigation endpoint
+ * (#34), so the UI can always show which SQL Server is under
+ * investigation — list, approvals, and report alike.
+ */
+export interface InvestigationTarget {
+  server_host: string;
+  server_port: number;
+  auth_type: "sql" | "ad";
+  databases: string[] | null;
+  lookback_hours: number;
+  created_at: string;
+}
+
+export interface InvestigationResponse extends InvestigationTarget {
   id: number;
   status: string;
   catalog: CatalogEntry[];
 }
 
-export interface InvestigationSummary {
+export interface InvestigationSummary extends InvestigationTarget {
   id: number;
   status: string;
 }

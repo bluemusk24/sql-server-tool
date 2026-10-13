@@ -56,6 +56,12 @@ const CATALOG: CatalogEntry[] = [
 const INVESTIGATION: InvestigationResponse = {
   id: INVESTIGATION_ID,
   status: "draft",
+  server_host: "sql-prod-01.corp.example",
+  server_port: 1433,
+  auth_type: "sql",
+  databases: null,
+  lookback_hours: 4,
+  created_at: "2026-10-13T14:05:09Z",
   catalog: CATALOG,
 };
 
@@ -123,6 +129,12 @@ describe("ApprovalScreen", () => {
     expect(screen.getByText("Wait stats impact")).toBeTruthy();
     expect(screen.getByText("SELECT * FROM q1")).toBeTruthy();
     expect(screen.getByText("SELECT * FROM q2")).toBeTruthy();
+
+    // The DBA sees which SQL Server they are approving queries for (#34).
+    expect(
+      await screen.findByText("sql-prod-01.corp.example:1433"),
+    ).toBeTruthy();
+    expect(screen.getByText(/SQL auth/)).toBeTruthy();
   });
 
   it("keeps Start run disabled until every query is approved", async () => {

@@ -62,6 +62,12 @@ const orgs = new Map<number, Organization>([
 const seedInvestigation: InvestigationResponse = {
   id: 42,
   status: "approved",
+  server_host: "sql01.acme.example",
+  server_port: 1433,
+  auth_type: "sql",
+  databases: null,
+  lookback_hours: 4,
+  created_at: "2026-10-12T13:55:00Z",
   catalog: MOCK_CATALOG,
 };
 investigations.set(42, seedInvestigation);
@@ -108,7 +114,18 @@ export const mockServiceClient: ServiceClient = {
 
   // Investigations
   async listInvestigations(): Promise<InvestigationSummary[]> {
-    return delay(Array.from(investigations.values()).map((i) => ({ id: i.id, status: i.status })));
+    return delay(
+      Array.from(investigations.values()).map((i) => ({
+        id: i.id,
+        status: i.status,
+        server_host: i.server_host,
+        server_port: i.server_port,
+        auth_type: i.auth_type,
+        databases: i.databases,
+        lookback_hours: i.lookback_hours,
+        created_at: i.created_at,
+      })),
+    );
   },
   async getInvestigation(id: number): Promise<InvestigationResponse> {
     const found = investigations.get(id);
@@ -120,6 +137,12 @@ export const mockServiceClient: ServiceClient = {
     const record: InvestigationResponse = {
       id,
       status: "draft",
+      server_host: payload.server_host,
+      server_port: payload.server_port ?? 1433,
+      auth_type: payload.auth_type,
+      databases: payload.databases ?? null,
+      lookback_hours: payload.lookback_hours,
+      created_at: new Date().toISOString(),
       catalog: MOCK_CATALOG,
     };
     investigations.set(id, record);

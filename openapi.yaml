@@ -529,10 +529,29 @@ components:
 
     InvestigationResponse:
       type: object
-      required: [id, status, catalog]
+      required:
+        [
+          id,
+          status,
+          server_host,
+          server_port,
+          auth_type,
+          lookback_hours,
+          created_at,
+          catalog,
+        ]
       properties:
         id: { type: integer }
         status: { type: string, example: draft }
+        server_host: { type: string, example: sql-prod-01.corp.example }
+        server_port: { type: integer, example: 1433 }
+        auth_type: { type: string, enum: [sql, ad] }
+        databases:
+          type: array
+          items: { type: string }
+          nullable: true
+        lookback_hours: { type: integer, enum: [1, 4, 8, 24] }
+        created_at: { type: string, example: "2026-10-13T14:05:09Z" }
         catalog:
           type: array
           items:
@@ -540,10 +559,28 @@ components:
 
     InvestigationSummary:
       type: object
-      required: [id, status]
+      required:
+        [
+          id,
+          status,
+          server_host,
+          server_port,
+          auth_type,
+          lookback_hours,
+          created_at,
+        ]
       properties:
         id: { type: integer }
         status: { type: string }
+        server_host: { type: string, example: sql-prod-01.corp.example }
+        server_port: { type: integer, example: 1433 }
+        auth_type: { type: string, enum: [sql, ad] }
+        databases:
+          type: array
+          items: { type: string }
+          nullable: true
+        lookback_hours: { type: integer, enum: [1, 4, 8, 24] }
+        created_at: { type: string, example: "2026-10-13T14:05:09Z" }
 
     ApprovalRequest:
       type: object

@@ -84,13 +84,28 @@ class CreateInvestigationRequest(BaseModel):
 
 
 class InvestigationSummary(BaseModel):
+    """List row: enough to show *which* SQL Server each investigation
+    targets (#34) without fetching the detail."""
+
     id: int
     status: str
+    server_host: str
+    server_port: int
+    auth_type: AuthType
+    databases: list[str] | None = None
+    lookback_hours: int
+    created_at: str
 
 
 class InvestigationResponse(BaseModel):
     id: int
     status: str
+    server_host: str
+    server_port: int
+    auth_type: AuthType
+    databases: list[str] | None = None
+    lookback_hours: int
+    created_at: str
     catalog: list[CatalogEntry]
 
 

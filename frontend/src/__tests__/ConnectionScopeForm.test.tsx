@@ -125,7 +125,17 @@ describe("ConnectionScopeForm", () => {
   it("submits exactly the typed payload, without the password, then navigates", async () => {
     const create = vi
       .spyOn(services, "createInvestigation")
-      .mockResolvedValue({ id: 7, status: "draft", catalog: [] });
+      .mockResolvedValue({
+        id: 7,
+        status: "draft",
+        server_host: VALID_HOST,
+        server_port: 1433,
+        auth_type: "sql",
+        databases: null,
+        lookback_hours: 4,
+        created_at: "2026-10-13T14:05:09Z",
+        catalog: [],
+      });
 
     renderForm();
     fillRequired();
@@ -152,7 +162,17 @@ describe("ConnectionScopeForm", () => {
   it("splits a comma-separated database scope", async () => {
     const create = vi
       .spyOn(services, "createInvestigation")
-      .mockResolvedValue({ id: 8, status: "draft", catalog: [] });
+      .mockResolvedValue({
+        id: 8,
+        status: "draft",
+        server_host: VALID_HOST,
+        server_port: 1433,
+        auth_type: "sql",
+        databases: ["db1", "db2"],
+        lookback_hours: 4,
+        created_at: "2026-10-13T14:05:09Z",
+        catalog: [],
+      });
 
     renderForm();
     fillRequired();
@@ -187,7 +207,17 @@ describe("ConnectionScopeForm", () => {
   it("accepts Active Directory with a notice, without blocking submit", async () => {
     const create = vi
       .spyOn(services, "createInvestigation")
-      .mockResolvedValue({ id: 9, status: "draft", catalog: [] });
+      .mockResolvedValue({
+        id: 9,
+        status: "draft",
+        server_host: VALID_HOST,
+        server_port: 1433,
+        auth_type: "ad",
+        databases: null,
+        lookback_hours: 4,
+        created_at: "2026-10-13T14:05:09Z",
+        catalog: [],
+      });
 
     renderForm();
     fireEvent.change(screen.getByLabelText(/auth type/i), {

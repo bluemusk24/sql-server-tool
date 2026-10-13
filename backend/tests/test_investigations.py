@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+import pytest
 from fastapi.testclient import TestClient
 
 from app.store import CATALOG
@@ -32,9 +35,20 @@ def test_create_and_get(client: TestClient, auth_headers: dict[str, str]) -> Non
     assert created["status"] == "draft"
     assert len(created["catalog"]) == len(CATALOG)
 
+    # The target server is part of the payload, not just the report (#34).
+    assert created["server_host"] == "sql02.acme.example"
+    assert created["server_port"] == 1433
+    assert created["auth_type"] == "sql"
+    assert created["databases"] is None
+    assert created["lookback_hours"] == 8
+    assert created["created_at"]
+
     response = client.get(f"/investigations/{created['id']}", headers=auth_headers)
     assert response.status_code == 200
-    assert response.json()["id"] == created["id"]
+    body = response.json()
+    assert body["id"] == created["id"]
+    assert body["server_host"] == "sql02.acme.example"
+    assert body["server_port"] == 1433
 
 
 def test_list_includes_seeded_and_created(
@@ -43,8 +57,45 @@ def test_list_includes_seeded_and_created(
     created = _create(client, auth_headers)
     response = client.get("/investigations", headers=auth_headers)
     assert response.status_code == 200
-    ids = [row["id"] for row in response.json()]
+    rows = response.json()
+    ids = [row["id"] for row in rows]
     assert created["id"] in ids
+
+    # Each list row shows which SQL Server it targets (#34).
+    target = next(row for row in rows if row["id"] == created["id"])
+    assert target["server_host"] == "sql02.acme.example"
+    assert target["server_port"] == 1433
+    assert target["auth_type"] == "sql"
+    assert target["lookback_hours"] == 8
+    assert target["created_at"]
+
+
+def test_backend_log_names_target_server(
+    client: TestClient, auth_headers: dict[str, str], caplog: pytest.LogCaptureFixture
+) -> None:
+    """The backend's own log names the investigated server on create and
+    on run start, so an observer can watch without the frontend (#34)."""
+    with caplog.at_level(logging.INFO, logger="sqldiag.investigations"):
+        created = _create(client, auth_headers)
+        inv_id = created["id"]
+
+        decisions = {entry.id: "approved" for entry in CATALOG}
+        client.post(
+            f"/investigations/{inv_id}/approvals",
+            headers=auth_headers,
+            json={"decisions": decisions},
+        )
+        response = client.post(f"/investigations/{inv_id}/run", headers=auth_headers)
+        assert response.status_code == 202
+
+    messages = [record.getMessage() for record in caplog.records]
+    created_line = next(m for m in messages if m.startswith("investigation"))
+    assert "sql02.acme.example:1433" in created_line
+    assert "dba" in created_line
+
+    run_line = next(m for m in messages if m.startswith("run started"))
+    assert f"investigation {inv_id}" in run_line
+    assert "sql02.acme.example:1433" in run_line
 
 
 def test_get_unknown_404(client: TestClient, auth_headers: dict[str, str]) -> None:

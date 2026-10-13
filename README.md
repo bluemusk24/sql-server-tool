@@ -276,6 +276,13 @@ Status codes follow the spec: **401** unauthenticated, **404** not found,
 **422** on validation errors (e.g. an unknown catalog id or an invalid
 `lookback_hours`).
 
+Every investigation row (list and detail) names its target SQL Server —
+`server_host`, `server_port`, `auth_type`, `databases`, `lookback_hours`,
+`created_at` — and the backend logs one `sqldiag.investigations` line
+naming the server whenever an investigation is opened or a run starts
+(never credentials). An observer can therefore see which instance is
+under investigation at any stage, without the frontend (#34).
+
 ### Project structure
 
 ```

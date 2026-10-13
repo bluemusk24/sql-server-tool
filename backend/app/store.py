@@ -189,6 +189,7 @@ class Investigation:
     auth_type: str
     databases: list[str] | None
     lookback_hours: int
+    created_at: str = ""
     catalog: list[CatalogEntry] = field(default_factory=lambda: list(CATALOG))
 
 
@@ -230,6 +231,7 @@ def _inv_from(row: orm.InvestigationRow) -> Investigation:
         auth_type=row.auth_type,
         databases=row.databases,
         lookback_hours=row.lookback_hours,
+        created_at=row.created_at,
     )
 
 
@@ -304,10 +306,24 @@ class DatabaseStore:
 
     # ── Investigations ──────────────────────────────────────────────
     def list_investigations(self) -> list[dict[str, Any]]:
+        """Every investigation's target + state, so callers can show which
+        SQL Server a job is for without a second lookup (#34)."""
         rows = self.session.execute(
             select(orm.InvestigationRow).order_by(orm.InvestigationRow.id)
         ).scalars()
-        return [{"id": r.id, "status": r.status} for r in rows]
+        return [
+            {
+                "id": r.id,
+                "status": r.status,
+                "server_host": r.server_host,
+                "server_port": r.server_port,
+                "auth_type": r.auth_type,
+                "databases": r.databases,
+                "lookback_hours": r.lookback_hours,
+                "created_at": r.created_at,
+            }
+            for r in rows
+        ]
 
     def create_investigation(
         self,

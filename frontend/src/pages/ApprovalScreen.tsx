@@ -147,6 +147,17 @@ export const ApprovalScreen: FC = () => {
     <main className="approval-screen">
       <h1>Approve Diagnostic Run</h1>
       {error && <p role="alert">{error}</p>}
+      <section className="target-server">
+        Target server:{" "}
+        <strong>
+          {investigation.server_host}:{investigation.server_port}
+        </strong>{" "}
+        · {investigation.auth_type === "ad" ? "Active Directory auth" : "SQL auth"}{" "}
+        · last {investigation.lookback_hours}h
+        {investigation.databases?.length
+          ? ` · ${investigation.databases.length} database(s)`
+          : ""}
+      </section>
       <section>{totalCount} query(ies) in this investigation</section>
       <section>
         {investigation.catalog.map((entry) => {
