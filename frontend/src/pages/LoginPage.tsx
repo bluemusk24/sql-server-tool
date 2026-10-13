@@ -6,16 +6,25 @@
  * because this is a seeded, read-only diagnostic tool.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 
 export function LoginPage() {
-  const { signIn } = useAuth();
+  const { state, signIn } = useAuth();
+  const navigate = useNavigate();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+
+  // Already signed in (e.g. a stored token) — don't show the form.
+  useEffect(() => {
+    if (state.status === "authenticated") {
+      navigate("/", { replace: true });
+    }
+  }, [state.status, navigate]);
 
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -23,7 +32,11 @@ export function LoginPage() {
     setMessage(null);
     const result = await signIn(username, password);
     setPending(false);
-    if (result.ok) return;
+    if (result.ok) {
+      // Sign-in succeeded — move off the login screen to the hub.
+      navigate("/", { replace: true });
+      return;
+    }
     setMessage(result.message);
   };
 
