@@ -40,10 +40,16 @@ export function HealthStatus() {
   }, []);
 
   if (state.status === "loading") {
-    return <p>API status: checking…</p>;
+    return <p className="health">API status: checking…</p>;
   }
   if (state.status === "error") {
-    return <p>API status: unavailable ({state.message})</p>;
+    return (
+      <p className="health">API status: unavailable ({state.message})</p>
+    );
   }
-  return <p>API status: {state.health.status} (v{state.health.version})</p>;
+  return (
+    <p className="health">
+      API status: {state.health.status} (v{state.health.version})
+    </p>
+  );
 }

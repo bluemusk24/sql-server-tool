@@ -85,7 +85,10 @@ export function JobStatusPage() {
         Job <code>{job.job_id}</code>
       </p>
       <p>
-        Status: <strong data-testid="job-state">{job.status}</strong>
+        Status:{" "}
+        <strong data-testid="job-state" data-state={job.status}>
+          {job.status}
+        </strong>
       </p>
 
       {state.status === "running" && <p>The run is in progress…</p>}

@@ -69,10 +69,10 @@ export function InvestigationList() {
                   <li key={inv.id}>
                     <span>
                       #{inv.id} —{" "}
-                      <strong>
+                      <strong className="host">
                         {inv.server_host}:{inv.server_port}
                       </strong>{" "}
-                      — <strong>{inv.status}</strong>
+                      <strong data-state={inv.status}>{inv.status}</strong>
                     </span>{" "}
                     <Link to={link.to}>{link.label}</Link>
                   </li>

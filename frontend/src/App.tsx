@@ -26,6 +26,10 @@ export function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
+        <header className="app-header">
+          <span className="brand">SDIP</span>
+          <span className="brand-sub">SQL Server Diagnostics</span>
+        </header>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route element={<RequireAuth />}>
