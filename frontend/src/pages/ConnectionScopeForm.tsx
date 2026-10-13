@@ -19,7 +19,7 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import { ApiError, LOOKBACK_HOURS, getServiceClient } from "../services";
+import { ApiError, LOOKBACK_HOURS, getServiceClient, stashCredentials } from "../services";
 import type { LookbackHours } from "../services";
 
 export type AuthType = "sql" | "ad";
@@ -29,6 +29,7 @@ export type Scope = "instance" | "databases";
 export interface FormState {
   serverHost: string;
   serverPort: string;
+  username: string;
   authType: AuthType;
   scope: Scope;
   databases: string;
@@ -47,6 +48,7 @@ export type FieldErrors = Partial<Record<FieldKey, string>>;
 const INITIAL: FormState = {
   serverHost: "",
   serverPort: "1433",
+  username: "",
   authType: "sql",
   scope: "instance",
   databases: "",
@@ -182,6 +184,12 @@ export function ConnectionScopeForm() {
           form.scope === "databases" ? parseDatabases(form.databases) : null,
         lookback_hours: form.lookbackHours as LookbackHours,
       });
+      // Keep the credentials in memory (never persisted) so the approval
+      // screen can hand them to the run when the DBA starts it (#31).
+      stashCredentials(created.id, {
+        username: form.username.trim() || null,
+        password,
+      });
       setPassword(""); // drop the credential the moment it is no longer needed
       navigate(`/investigations/${created.id}/approve`);
     } catch (e) {
@@ -261,6 +269,16 @@ export function ConnectionScopeForm() {
 
         {form.authType === "sql" && (
           <>
+            <label htmlFor="username">
+              Username
+              <input
+                id="username"
+                type="text"
+                value={form.username}
+                onChange={(e) => setField("username", e.target.value)}
+                autoComplete="off"
+              />
+            </label>
             <label htmlFor="password">
               Password
               <input
@@ -277,7 +295,8 @@ export function ConnectionScopeForm() {
               />
             </label>
             <p className="muted" id="password-help">
-              Session-only: never stored in the investigation, report, or logs.
+              Session-only: kept in memory for the run, never stored in the
+              investigation, report, or logs.
             </p>
             {errors.password && (
               <p role="alert" id="password-error">

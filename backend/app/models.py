@@ -119,6 +119,28 @@ class RunAccepted(BaseModel):
     job_id: str
 
 
+class CredentialsRequest(BaseModel):
+    """Per-investigation SQL credentials (#31).
+
+    Session-only by design (spec §6): the request model excludes the
+    password from reprs, and the run path never persists either field —
+    they die with the request frame after the connection closes.
+    """
+
+    username: str | None = None
+    password: str | None = Field(default=None, repr=False)
+
+
+class StartRunRequest(BaseModel):
+    """Optional body on ``POST /investigations/{id}/run``.
+
+    Supplying ``credentials`` switches the run to live collection against
+    the investigation's instance; omitting it keeps the seeded demo path.
+    """
+
+    credentials: CredentialsRequest | None = None
+
+
 class JobStatusResponse(BaseModel):
     job_id: str
     status: JobState

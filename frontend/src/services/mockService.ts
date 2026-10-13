@@ -13,6 +13,7 @@ import type {
   ApprovalResponse,
   AuthorizationStart,
   CreateInvestigationRequest,
+  Credentials,
   CreateOrganizationRequest,
   HealthStatus,
   InvestigationResponse,
@@ -173,7 +174,7 @@ export const mockServiceClient: ServiceClient = {
   },
 
   // Jobs
-  async startRun(investigationId: number): Promise<RunAccepted> {
+  async startRun(investigationId: number, _credentials?: Credentials | null): Promise<RunAccepted> {
     const jobId = `job-${Date.now()}`;
     jobs.set(jobId, {
       job_id: jobId,

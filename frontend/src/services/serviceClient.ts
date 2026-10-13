@@ -12,6 +12,7 @@ import type {
   AuthorizationStart,
   CreateInvestigationRequest,
   CreateOrganizationRequest,
+  Credentials,
   HealthStatus,
   InvestigationResponse,
   InvestigationSummary,
@@ -43,7 +44,7 @@ export interface ServiceClient {
   recordDecisions(investigationId: number, payload: ApprovalRequest): Promise<ApprovalResponse>;
 
   // Jobs
-  startRun(investigationId: number): Promise<RunAccepted>;
+  startRun(investigationId: number, credentials?: Credentials | null): Promise<RunAccepted>;
   getJobStatus(jobId: string): Promise<JobStatusResponse>;
   cancelJob(jobId: string): Promise<JobStatusResponse>;
 

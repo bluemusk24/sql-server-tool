@@ -52,7 +52,11 @@ export const realServiceClient: ServiceClient = {
     request<ApprovalResponse>(`/investigations/${id}/approvals`, { method: "POST", body: payload }),
 
   // Jobs
-  startRun: (id) => request<RunAccepted>(`/investigations/${id}/run`, { method: "POST" }),
+  startRun: (id, credentials) =>
+    request<RunAccepted>(`/investigations/${id}/run`, {
+      method: "POST",
+      body: credentials ? { credentials } : undefined,
+    }),
   getJobStatus: (jobId) => request<JobStatusResponse>(`/jobs/${encodeURIComponent(jobId)}`),
   cancelJob: (jobId) => request<JobStatusResponse>(`/jobs/${encodeURIComponent(jobId)}/cancel`, { method: "POST" }),
 

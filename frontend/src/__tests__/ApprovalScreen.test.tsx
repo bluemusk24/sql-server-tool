@@ -12,7 +12,13 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApprovalScreen } from "../pages/ApprovalScreen";
-import { ApiError, services } from "../services";
+import {
+  ApiError,
+  clearCredentials,
+  peekCredentials,
+  services,
+  stashCredentials,
+} from "../services";
 import type {
   ApprovalQuery,
   ApprovalResponse,
@@ -105,6 +111,7 @@ describe("ApprovalScreen", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    clearCredentials(INVESTIGATION_ID);
   });
 
   it("shows each query's SQL text, purpose, and expected impact", async () => {
@@ -208,7 +215,46 @@ describe("ApprovalScreen", () => {
     fireEvent.click(start);
 
     expect(await screen.findByText(/job page/)).toBeTruthy();
-    expect(startRun).toHaveBeenCalledWith(INVESTIGATION_ID);
+    expect(startRun).toHaveBeenCalledWith(INVESTIGATION_ID, null);
+  });
+
+  it("forwards stashed credentials with the run start, then forgets them", async () => {
+    stashCredentials(INVESTIGATION_ID, {
+      username: "svc_diag",
+      password: "s3cret",
+    });
+    const approved: string[] = [];
+    vi.spyOn(services, "recordDecisions").mockImplementation(
+      async (_id, payload) => {
+        const [catalogId] = Object.entries(payload.decisions)[0];
+        approved.push(catalogId);
+        return responseFor(approved);
+      },
+    );
+    const startRun = vi
+      .spyOn(services, "startRun")
+      .mockResolvedValue({ job_id: "job-77" });
+
+    renderApproval();
+    await screen.findByText("Blocking chains purpose");
+
+    fireEvent.click(
+      within(detailsFor("Blocking chains")).getByRole("radio", { name: /approve/i }),
+    );
+    fireEvent.click(
+      within(detailsFor("Wait stats")).getByRole("radio", { name: /approve/i }),
+    );
+    const start = await screen.findByRole("button", { name: /start run/i });
+    await waitFor(() => expect(start).toBeEnabled());
+    fireEvent.click(start);
+
+    await screen.findByText(/job page/);
+    expect(startRun).toHaveBeenCalledWith(INVESTIGATION_ID, {
+      username: "svc_diag",
+      password: "s3cret",
+    });
+    // Consumed: the stash is cleared once the run has started.
+    expect(peekCredentials(INVESTIGATION_ID)).toBeNull();
   });
 
   it("goes read-only when the API reports the run already started (409)", async () => {

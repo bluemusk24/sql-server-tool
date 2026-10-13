@@ -7,8 +7,11 @@ once a run has started, and a run cannot start until the gate is approved.
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, status
 
+from app import live
 from app.auth import CurrentUser, get_current_user
 from app.models import (
     ApprovalQuery,
@@ -19,6 +22,7 @@ from app.models import (
     InvestigationResponse,
     InvestigationSummary,
     RunAccepted,
+    StartRunRequest,
 )
 from app.store import ApprovalDecision, DatabaseStore, Investigation, get_store
 
@@ -159,6 +163,7 @@ def record_decisions(
 )
 def start_run(
     inv_id: int,
+    payload: StartRunRequest | None = None,
     store: DatabaseStore = Depends(get_store),
     user: CurrentUser = Depends(get_current_user),
 ) -> RunAccepted:
@@ -175,12 +180,56 @@ def start_run(
             detail="Approval gate not satisfied",
         )
 
-    # The "run" succeeds immediately and produces a report so the dashboard
-    # has something to render. A real backend would enqueue here.
+    credentials = payload.credentials if payload else None
+    if credentials is not None and inv.auth_type == "sql" and (
+        not credentials.username or credentials.password is None
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="SQL authentication requires a username and password",
+        )
+
     job = store.create_job(inv_id)
+
+    # Credentials present → live collection (#31). The password lives only
+    # in this request frame: it is handed to the driver, never stored, and
+    # nothing below this line receives it.
+    collection: list[dict[str, Any]] | None = None
+    if credentials is not None:
+        approved_ids = {
+            cid for cid, decision in decisions.items() if decision.decision == "approved"
+        }
+        entries = [
+            {
+                "id": entry.id,
+                "title": entry.title,
+                "category": entry.category,
+                "issue_area": entry.issue_area,
+                "sql": entry.sql,
+            }
+            for entry in inv.catalog
+            if entry.id in approved_ids
+        ]
+        outcomes = live.run_collection(
+            entries,
+            live.ConnectionSettings(
+                server_host=inv.server_host,
+                server_port=inv.server_port,
+                auth_type=inv.auth_type,
+                username=credentials.username,
+                password=credentials.password,
+                timeout_seconds=live.query_timeout_seconds(),
+            ),
+            lookback_hours=inv.lookback_hours,
+            databases=inv.databases,
+        )
+        collection = [outcome.to_dict() for outcome in outcomes]
+
+    # Without credentials the run keeps the seeded demo report so the
+    # dashboard always has something to render.
     store.update_job(job.job_id, status="succeeded", result={"investigation_id": inv_id})
     store.set_investigation_status(inv_id, "completed")
-    store.generate_report(inv, user.organization)
+    store.generate_report(inv, user.organization, collection=collection)
     return RunAccepted(job_id=job.job_id)
 
 

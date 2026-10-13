@@ -144,6 +144,37 @@ To let a deployed frontend (e.g. Vercel) call the API, list its URL in
 CORS_ALLOW_ORIGINS="https://my-app.vercel.app" uv run uvicorn app.main:app --port 8000
 ```
 
+### Live collection
+
+A run started **without** credentials produces the seeded demo report. A
+run started **with** credentials collects real evidence from the target
+instance through the ODBC Driver 18 (#31):
+
+```bash
+curl -X POST http://localhost:8000/investigations/1/run \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"credentials": {"username": "svc_diag", "password": "…"}}'
+```
+
+- Only the DBA-approved catalog queries run — read-only, with a per-query
+  timeout (`LIVE_QUERY_TIMEOUT_SECONDS`, default 30s).
+- SQL auth needs a username and password; `ad` uses integrated/Kerberos
+  auth from the host's own identity.
+- Credentials are **session-only**: used to open the connection, never
+  stored in the investigation, job, report, or logs (spec §6). The
+  frontend keeps them in memory only, between the form and the run start.
+- Connection or query failures become `unavailable` sources with explicit
+  coverage gaps — never fabricated findings (spec §3.8).
+- The driver is optional at runtime: without it (or without a reachable
+  server) the report shows every source as unavailable, with the reason.
+- Real-server integration test: set `SQLDIAG_TEST_SERVER` (plus `_PORT`,
+  `_USER`, `_PASSWORD`) and run `uv run pytest tests/test_live.py` — the
+  env-gated case connects for real.
+
+The backend Docker image ships the driver, so a deployed instance can
+collect live evidence as soon as a server is reachable.
+
 ### Run
 
 ```bash
@@ -429,10 +460,20 @@ the underlying commands. Run `make` (or `make help`) to list them at any time.
 
 ### Run one half
 
+Two terminals, frontend and backend connected through the dev proxy:
+
+```bash
+# terminal 1
+make backend
+
+# terminal 2
+make frontend   # real mode (VITE_USE_MOCK=false) — talks to terminal 1
+```
+
 | Command | What it does |
 | ------- | ------------ |
 | `make backend` | Run only the backend API on `:8000`. |
-| `make frontend` | Run only the frontend dev server on `:5173`. |
+| `make frontend` | Run only the frontend dev server on `:5173` in **real mode** (talks to `make backend`; use `make mock` for the mock-only version). |
 
 ### Backend
 

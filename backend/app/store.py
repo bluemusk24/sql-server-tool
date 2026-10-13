@@ -427,9 +427,21 @@ class DatabaseStore:
         row = self.session.get(orm.ReportRow, inv_id)
         return dict(row.payload) if row is not None else None
 
-    def generate_report(self, inv: Investigation, organization: str) -> dict[str, Any]:
-        """Build a demo report for an investigation and persist it."""
+    def generate_report(
+        self,
+        inv: Investigation,
+        organization: str,
+        collection: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """Persist the report for an investigation.
+
+        With `collection` (live run outcomes, #31) the report carries the
+        real per-source statuses, coverage gaps, and evidence; without it
+        the seeded demo content keeps the dashboard usable offline.
+        """
         report = build_demo_report(inv, organization)
+        if collection is not None:
+            report = apply_collection(report, collection)
         row = self.session.get(orm.ReportRow, inv.id)
         if row is None:
             self.session.add(
@@ -484,6 +496,88 @@ def build_demo_report(inv: Investigation, organization: str) -> dict[str, Any]:
         "remediation": [],
         "read_only_disclaimer": "recommendation only, execute at the DBA's discretion",
     }
+
+
+def apply_collection(
+    report: dict[str, Any], collection: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Blend real live-collection outcomes into the report (#31).
+
+    Sources carry their true status; anything not collected becomes an
+    explicit coverage gap (spec §3.8 — never claim unavailable evidence
+    was checked). Collected rows land grouped by issue area as raw
+    evidence. No signals or causes are invented: deriving findings needs
+    validated thresholds first (spec §10).
+    """
+    report = dict(report)
+    report["data_sources"] = [
+        {
+            "source_id": outcome["source_id"],
+            "title": outcome["title"],
+            "category": outcome["category"],
+            "issue_area": outcome["issue_area"],
+            "status": outcome["status"],
+            "checked": outcome["status"] == "collected",
+            "note": outcome["note"],
+        }
+        for outcome in collection
+    ]
+    report["coverage_gaps"] = [
+        {
+            "source_id": outcome["source_id"],
+            "issue_area": outcome["issue_area"],
+            "status": outcome["status"],
+            "note": outcome["note"] or "no evidence collected",
+        }
+        for outcome in collection
+        if outcome["status"] != "collected"
+    ]
+
+    areas: dict[str, dict[str, Any]] = {}
+    for outcome in collection:
+        if outcome["status"] != "collected" or not outcome["evidence"]:
+            continue
+        area = areas.setdefault(
+            outcome["issue_area"],
+            {
+                "area": outcome["issue_area"],
+                "severity": "none",
+                "confidence_percent": 0,
+                "confidence_label": "low",
+                "signal_count": 0,
+                "findings": [],
+                "evidence": [],
+            },
+        )
+        area["evidence"].extend(
+            {
+                "evidence_id": f"{outcome['source_id']}-{index}",
+                "area": outcome["issue_area"],
+                "timestamp": report["investigation_time"],
+                "description": outcome["title"],
+                "details": row,
+            }
+            for index, row in enumerate(outcome["evidence"])
+        )
+    report["findings_by_area"] = list(areas.values())
+
+    collected = sum(1 for outcome in collection if outcome["status"] == "collected")
+    gaps = len(collection) - collected
+    report["rationale"] = (
+        f"Live collection: {collected} of {len(collection)} sources collected"
+        + (f"; {gaps} unavailable (see coverage gaps)." if gaps else ".")
+    )
+    report["inconclusive"] = gaps > 0 or collected == 0
+    report["primary_cause"] = {
+        "title": "No primary cause determined",
+        "description": (
+            "Evidence was collected, but no decision rules have been "
+            "validated for these signals yet (docs/spec.md §10)."
+        ),
+        "confidence_percent": 0,
+        "confidence_label": "low",
+    }
+    return report
 
 
 # ── Seeding (runs once, on an empty database) ───────────────────────

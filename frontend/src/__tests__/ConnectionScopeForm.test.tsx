@@ -51,6 +51,7 @@ function fillRequired() {
 const validState: FormState = {
   serverHost: VALID_HOST,
   serverPort: "1433",
+  username: "",
   authType: "sql",
   scope: "instance",
   databases: "",

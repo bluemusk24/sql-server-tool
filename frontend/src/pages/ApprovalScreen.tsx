@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import type { FC } from "react";
-import { ApiError, services } from "../services";
+import { ApiError, clearCredentials, peekCredentials, services } from "../services";
 import type {
   ApprovalResponse,
   InvestigationResponse,
@@ -128,7 +128,11 @@ export const ApprovalScreen: FC = () => {
   const start = async () => {
     setRunning(true);
     try {
-      const run = await services.startRun(parseInt(investigationId!));
+      const id = parseInt(investigationId!);
+      // Session-only credentials stashed by the new-investigation form:
+      // sent with the run start, then dropped from memory (#31).
+      const run = await services.startRun(id, peekCredentials(id));
+      clearCredentials(id);
       navigate(`/jobs/${run.job_id}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "start error");

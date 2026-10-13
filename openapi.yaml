@@ -243,7 +243,14 @@ paths:
       summary: Start diagnostic run
       description: |
         Enqueues one diagnostic run behind the approval gate. Returns 202
-        with the arq job id without waiting on the run.
+        with the job id without waiting on the run.
+
+        Supply `credentials` to collect **live** evidence from the target
+        instance through the ODBC driver: only the DBA-approved catalog
+        queries run, read-only, with a per-query timeout. Credentials are
+        session-only — they are used to open the connection and are never
+        stored in the investigation, job, report, or logs. Omitting the
+        body keeps the seeded demo path (no connection is attempted).
       security:
         - bearerAuth: []
       parameters:
@@ -251,6 +258,12 @@ paths:
           in: path
           required: true
           schema: { type: integer }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartRunRequest"
       responses:
         "202":
           description: Run queued
@@ -262,6 +275,8 @@ paths:
           description: Not found
         "409":
           description: Gate closed or already started
+        "422":
+          description: Credentials incomplete for the investigation's auth type
 
   /jobs/{job_id}:
     get:
@@ -570,6 +585,23 @@ components:
       required: [job_id]
       properties:
         job_id: { type: string, example: "job-1710000000" }
+
+    CredentialsRequest:
+      type: object
+      description: |
+        Per-investigation SQL credentials. Session-only: never persisted,
+        never logged (spec §6). Required for `sql` auth; ignored for `ad`
+        (integrated/Kerberos uses the host's identity).
+      properties:
+        username: { type: string, nullable: true }
+        password: { type: string, format: password, nullable: true }
+
+    StartRunRequest:
+      type: object
+      description: Optional body on POST /investigations/{id}/run.
+      properties:
+        credentials:
+          $ref: "#/components/schemas/CredentialsRequest"
 
     JobStatusResponse:
       type: object

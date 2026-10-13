@@ -111,6 +111,21 @@ export interface ApprovalResponse {
 // ── Jobs ───────────────────────────────────────────────────────────
 export type JobState = "queued" | "running" | "succeeded" | "failed" | "canceled";
 
+/** Per-investigation SQL credentials (#31).
+ *
+ * Session-only by spec (§6): held in the browser's memory (see
+ * `credentials.ts`), sent with the run start, never persisted anywhere.
+ */
+export interface Credentials {
+  username?: string | null;
+  password: string;
+}
+
+/** Optional body on POST /investigations/{id}/run (#31). */
+export interface StartRunRequest {
+  credentials?: Credentials | null;
+}
+
 export interface RunAccepted {
   job_id: string;
 }

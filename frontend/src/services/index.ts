@@ -24,6 +24,7 @@ export type {
   CoverageGap,
   CreateInvestigationRequest,
   CreateOrganizationRequest,
+  Credentials,
   DataSourceReport,
   Decision,
   EvidenceItem,
@@ -43,11 +44,17 @@ export type {
   Severity,
   Signal,
   SourceStatus,
+  StartRunRequest,
   TokenResponse,
 } from "./types";
 
 export { ApiError } from "./http";
 export { LOOKBACK_HOURS } from "./types";
+export {
+  clearCredentials,
+  peekCredentials,
+  stashCredentials,
+} from "./credentials";
 
 // ── Factory ─────────────────────────────────────────────────────────
 
