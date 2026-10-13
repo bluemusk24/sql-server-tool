@@ -254,6 +254,18 @@ textarea:focus {
   border-color: var(--accent);
 }
 
+/* Browser autofill (password managers) otherwise repaints fields white;
+ * force them back into the dark theme. */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--text);
+  caret-color: var(--text);
+  transition: background-color 100000s ease-in-out 0s;
+  box-shadow: 0 0 0 1000px var(--surface-2) inset;
+  border-color: var(--border-strong);
+}
+
 fieldset {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
