@@ -70,6 +70,13 @@ export const ApprovalScreen: FC = () => {
         setError("Run already started or cancelled – screen is read‑only");
       } else {
         setError(e instanceof Error ? e.message : "submit error");
+        // The server didn't record the decision — revert the local choice
+        // so the control doesn't show an approval that never happened.
+        setDecisions((prev) => {
+          const copy = { ...prev };
+          delete copy[catalogId];
+          return copy;
+        });
       }
     }
   };
@@ -146,6 +153,10 @@ export const ApprovalScreen: FC = () => {
             .find((q) => q.catalog_id === entry.id)
             ?.note ?? "";
           const noteError = noteErrors[entry.id];
+          // The DBA's in-progress choice wins over what the server has
+          // recorded, so selecting Reject shows its reason box right away
+          // (the rejection is POSTed once the reason qualifies, below).
+          const effectiveDecision = decisions[entry.id] ?? currentDecision;
           return (
             <details key={entry.id} open>
               <summary>{entry.title || `Query ${entry.id}`}</summary>
@@ -163,7 +174,7 @@ export const ApprovalScreen: FC = () => {
                     type="radio"
                     name={`decision-${entry.id}`}
                     value="approved"
-                    checked={currentDecision === "approved"}
+                    checked={effectiveDecision === "approved"}
                     disabled={readonly}
                     onChange={(e) => onApproveChange(entry.id, e)}
                   />{' '}
@@ -174,19 +185,19 @@ export const ApprovalScreen: FC = () => {
                     type="radio"
                     name={`decision-${entry.id}`}
                     value="rejected"
-                    checked={currentDecision === "rejected"}
+                    checked={effectiveDecision === "rejected"}
                     disabled={readonly}
                     onChange={(e) => onApproveChange(entry.id, e)}
                   />{' '}
                   Reject
                 </label>
-                {currentDecision === "rejected" && (
+                {effectiveDecision === "rejected" && (
                   <div>
                     <label>
                       Reason (min 10 chars):{' '}
                       <input
                         type="text"
-                        value={currentNote}
+                        value={notes[entry.id] ?? currentNote}
                         disabled={readonly}
                         onChange={(e) => onNoteChange(entry.id, e)}
                         aria-describedby={`reason-${entry.id}`}

@@ -3,8 +3,10 @@
  *
  * Renders the diagnostic report returned by `GET /reports/{id}` and
  * offers a PDF download (`GET /reports/{id}.pdf`). This is the payoff
- * screen: after a run succeeds, the DBA lands here to see the primary
- * cause, per-area findings, and read-only remediation guidance.
+ * screen: after a run succeeds, the DBA lands here to see the summary,
+ * per-source collection status, primary cause, findings by area with
+ * their raw evidence, coverage gaps, validation checks, and read-only
+ * remediation guidance (#25).
  */
 
 import { useEffect, useState } from "react";
@@ -113,6 +115,24 @@ export function ReportPage() {
         </dl>
       </section>
 
+      {r.data_sources.length > 0 && (
+        <section>
+          <h2>Data sources</h2>
+          <ul>
+            {r.data_sources.map((source) => (
+              <li key={source.source_id}>
+                <strong>{source.title}</strong>{" "}
+                <em data-testid={`source-status-${source.source_id}`}>
+                  ({source.status}
+                  {source.checked ? "" : ", not checked"})
+                </em>
+                {source.note && <> — {source.note}</>}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       <section>
         <h2>Primary cause</h2>
         <p>
@@ -146,15 +166,80 @@ export function ReportPage() {
               Confidence {area.confidence_percent}% ({area.confidence_label}),{" "}
               {area.signal_count} signal(s)
             </p>
+            {area.findings.length > 0 && (
+              <ul>
+                {area.findings.map((signal) => (
+                  <li key={signal.rule_id}>
+                    <strong>{signal.title}</strong>{" "}
+                    <em>(severity: {signal.severity})</em> — {signal.description}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {area.evidence.length > 0 && (
+              <details>
+                <summary>Raw evidence ({area.evidence.length})</summary>
+                <ul>
+                  {area.evidence.map((item) => (
+                    <li key={item.evidence_id}>
+                      <p>{item.description}</p>
+                      <p className="muted">
+                        {item.evidence_id}
+                        {item.timestamp ? ` · ${item.timestamp}` : ""}
+                      </p>
+                      {Object.keys(item.details).length > 0 && (
+                        <pre>{JSON.stringify(item.details, null, 2)}</pre>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
           </div>
         ))}
       </section>
+
+      {r.coverage_gaps.length > 0 && (
+        <section>
+          <h2>Coverage gaps</h2>
+          <ul>
+            {r.coverage_gaps.map((gap) => (
+              <li key={`${gap.source_id}-${gap.issue_area}`}>
+                <strong>{gap.issue_area}</strong> ({gap.status}) — {gap.note}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {r.validation_checks.length > 0 && (
+        <section>
+          <h2>Validation checks</h2>
+          <ul>
+            {r.validation_checks.map((check, i) => (
+              <li key={i}>{check}</li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {r.recommendations.length > 0 && (
         <section>
           <h2>Recommendations</h2>
           {r.recommendations.map((rec, i) => (
             <div key={i}>
+              {rec.validation_checks.length > 0 && (
+                <>
+                  <p>
+                    <strong>Validate first:</strong>
+                  </p>
+                  <ul>
+                    {rec.validation_checks.map((check, k) => (
+                      <li key={k}>{check}</li>
+                    ))}
+                  </ul>
+                </>
+              )}
               <p>{rec.disclaimer}</p>
               <ol>
                 {rec.remediation.map((step, j) => (
