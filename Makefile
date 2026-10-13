@@ -113,9 +113,9 @@ frontend-build: ## Type-check and build frontend for production
 image: ## Build the single-image container (API serves the frontend)
 	docker build -t sdip:latest .
 
-container: image ## Build and run the sdip container on :8000 (Ctrl+C stops it)
+container: image ## Build and run the sdip container on :8080 (Ctrl+C stops it)
 	-docker rm -f sdip 2>/dev/null
-	docker run --rm -p 8000:8000 \
+	docker run --rm -p 8080:8000 \
 	  -v sdip-data:/data \
 	  -e SDIP_DATABASE_URL=sqlite:////data/sdip.db \
 	  --name sdip sdip:latest

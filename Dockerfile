@@ -7,11 +7,11 @@
 #
 # Build from the repository root:
 #   docker build -t sdip:latest .
-#   docker run --rm -p 8000:8000 \
+#   docker run --rm -p 8080:8000 \
 #     -v sdip-data:/data \
 #     -e SDIP_DATABASE_URL=sqlite:////data/sdip.db \
 #     --name sdip sdip:latest
-# then open http://localhost:8000 — FastAPI serves both the API and the
+# then open http://localhost:8080 — FastAPI serves both the API and the
 # built SPA (same origin), so one container runs everything. The named
 # volume sdip-data keeps the SQLite database between container runs.
 # That is the shape Render's free web service wants (see render.yaml, #33).

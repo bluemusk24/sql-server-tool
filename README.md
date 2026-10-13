@@ -542,11 +542,11 @@ routes (`FRONTEND_DIST` → [`backend/app/spa.py`](backend/app/spa.py)):
 ```bash
 docker build -t sdip:latest .
 
-docker run --rm -p 8000:8000 \
+docker run --rm -p 8080:8000 \
   -v sdip-data:/data \
   -e SDIP_DATABASE_URL=sqlite:////data/sdip.db \
   --name sdip sdip:latest
-# → http://localhost:8000 serves both the SPA and the API
+# → http://localhost:8080 serves both the SPA and the API
 ```
 
 Or via make: `make image` (build) and `make container` (build + run).
