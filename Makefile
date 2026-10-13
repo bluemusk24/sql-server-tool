@@ -71,8 +71,8 @@ mock: ## Start the frontend against its in-memory mock (no backend)
 backend: ## Run only the backend API on :8000
 	cd "$(BACKEND_DIR)" && uv run uvicorn app.main:app --reload --port $(BACKEND_PORT)
 
-frontend: ## Run only the frontend dev server on :5173
-	cd "$(FRONTEND_DIR)" && npm run dev
+frontend: ## Run only the frontend dev server on :5173 (real mode — pairs with `make backend`)
+	cd "$(FRONTEND_DIR)" && VITE_USE_MOCK=false npm run dev
 
 # ── Install ──────────────────────────────────────────────────────────
 setup: backend-install frontend-install ## Install backend and frontend dependencies
