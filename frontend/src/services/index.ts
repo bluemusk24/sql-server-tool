@@ -32,6 +32,7 @@ export type {
   InvestigationSummary,
   JobState,
   JobStatusResponse,
+  LookbackHours,
   LoginRequest,
   Organization,
   Recommendation,
@@ -46,6 +47,7 @@ export type {
 } from "./types";
 
 export { ApiError } from "./http";
+export { LOOKBACK_HOURS } from "./types";
 
 // ── Factory ─────────────────────────────────────────────────────────
 

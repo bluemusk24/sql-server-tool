@@ -55,12 +55,23 @@ export interface CatalogEntry {
 }
 
 // ── Investigations ─────────────────────────────────────────────────
+
+/** Lookback windows the investigation API accepts.
+ *
+ * Single source of truth for this choice list. Mirrors
+ * `LookbackHours = Literal[1, 4, 8, 24]` in `backend/app/models.py` (#9) —
+ * change both together.
+ */
+export const LOOKBACK_HOURS = [1, 4, 8, 24] as const;
+
+export type LookbackHours = (typeof LOOKBACK_HOURS)[number];
+
 export interface CreateInvestigationRequest {
   server_host: string;
   server_port?: number;
   auth_type: "sql" | "ad";
   databases?: string[] | null;
-  lookback_hours: 1 | 4 | 8 | 24;
+  lookback_hours: LookbackHours;
 }
 
 export interface InvestigationResponse {
