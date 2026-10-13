@@ -132,6 +132,18 @@ the tables if they are missing and seeds demo data **only** when the database
 is empty — existing data is never overwritten. Schema changes are managed with
 Alembic (see [Migrations](#migrations)).
 
+### CORS
+
+Browsers may only call the API from origins it allows. By default those are
+the local Vite dev servers (`http://localhost:5173`, `http://127.0.0.1:5173`)
+— exactly what `make run` uses, so local development needs no configuration.
+To let a deployed frontend (e.g. Vercel) call the API, list its URL in
+`CORS_ALLOW_ORIGINS` (comma-separated for several):
+
+```bash
+CORS_ALLOW_ORIGINS="https://my-app.vercel.app" uv run uvicorn app.main:app --port 8000
+```
+
 ### Run
 
 ```bash
@@ -450,6 +462,70 @@ Use `make backend` and `make frontend` in two terminals instead.
 
 Targets that wrap `uv` or `npm` run them from the correct directory for you, so
 you never need to `cd` first.
+
+---
+
+## Deployment
+
+The frontend deploys to **Vercel** (a static SPA built with Vite); the backend
+deploys as a **container** (Render / Fly.io / Azure Container Apps). Keeping
+the API in a container rather than in Vercel's serverless functions preserves
+the path to live SQL Server diagnosis (#31): a container can install the
+Microsoft ODBC Driver 18 and keep state, a function cannot.
+
+### Frontend on Vercel
+
+1. Import the GitHub repository at vercel.com/new — the **Vite** framework
+   preset is auto-detected.
+2. Set **Root Directory** to `frontend` (Settings → General); this repo is a
+   monorepo.
+3. Under Settings → Environment Variables, add what the SPA should call:
+   - `VITE_API_BASE_URL` = `https://your-api.example.com` (no trailing slash).
+   - `VITE_USE_MOCK` unset (`false`) calls the real API; set to `true` for a
+     self-contained demo using the bundled mock data.
+4. Deploy. [`frontend/vercel.json`](frontend/vercel.json) already contains the
+   SPA rewrite, so React Router deep links (`/investigations/1/report`) work
+   on a page refresh.
+
+`make run` and plain `npm run dev` are unaffected: with `VITE_API_BASE_URL`
+empty the client calls same-origin paths, and the Vite dev proxy forwards
+them to `http://localhost:8000` exactly as before.
+
+### Backend as a container
+
+[`backend/Dockerfile`](backend/Dockerfile) builds the API with the locked `uv`
+environment, listens on `$PORT` (every platform above sets one), and runs as a
+non-root user:
+
+```bash
+# Local smoke test
+cd backend
+docker build -t sql-server-tool-api .
+docker run --rm -p 8000:8000 -e CORS_ALLOW_ORIGINS=http://localhost:5173 sql-server-tool-api
+```
+
+Platform setup (each supports a subdirectory as the project root):
+
+| Platform | Setting |
+| -------- | ------- |
+| Render | New → Web Service → Docker, Root Directory `backend` |
+| Fly.io | `fly launch` from `backend/` (build context = this directory) |
+| Azure Container Apps | Build from `backend/Dockerfile` in the repo |
+
+Environment variables for the service:
+
+| Variable | Purpose |
+| -------- | ------- |
+| `CORS_ALLOW_ORIGINS` | Your Vercel URL(s), comma-separated — required so the deployed SPA can call the API |
+| `DATABASE_URL` | Defaults to the container's SQLite file; attach a persistent disk or point at managed Postgres to survive restarts |
+
+Finally, set the same API URL as `VITE_API_BASE_URL` on Vercel and redeploy
+the frontend.
+
+> **Note:** the container's filesystem is ephemeral on most platforms, so the
+> SQLite database (logins, investigations) resets on each deploy or restart
+> unless you attach a disk or use Postgres. Demo data reseeds automatically
+> whenever the database is empty.
 
 ---
 

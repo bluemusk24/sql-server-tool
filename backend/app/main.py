@@ -1,12 +1,15 @@
 """FastAPI application factory and module-level ASGI app.
 
-Wires the routers, CORS (so the Vite dev server on :5173 can call the API),
-and configures the database from ``DATABASE_URL`` (SQLite by default). Tests
-build a fresh app via ``create_app(database_url=...)`` so each gets its own
-isolated database.
+Wires the routers, CORS (so browsers on allowed origins — the local Vite
+dev servers by default, plus any origins listed in ``$CORS_ALLOW_ORIGINS``,
+e.g. a frontend deployed on Vercel — can call the API), and configures the
+database from ``DATABASE_URL`` (SQLite by default). Tests build a fresh app
+via ``create_app(database_url=...)`` so each gets its own isolated database.
 """
 
 from __future__ import annotations
+
+import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,14 +19,31 @@ from app.db import get_database_url, init_schema, make_engine, make_session_fact
 from app.routers import auth, health, investigations, jobs, orgs, reports
 from app.store import seed_database
 
+# Origins permitted when $CORS_ALLOW_ORIGINS is unset: the Vite dev server
+# that `make run` starts, so local development needs no configuration.
+DEV_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
+
+
+def allowed_origins() -> list[str]:
+    """Browser origins permitted by CORS.
+
+    ``$CORS_ALLOW_ORIGINS`` is a comma-separated list — typically the
+    deployed frontend's URL (e.g. ``https://my-app.vercel.app``). When it is
+    unset or blank, the local Vite dev servers are used so `make run` keeps
+    working with no extra configuration.
+    """
+    raw = os.environ.get("CORS_ALLOW_ORIGINS", "")
+    origins = [origin.strip() for origin in raw.split(",") if origin.strip()]
+    return origins or DEV_ORIGINS
+
 
 def create_app(database_url: str | None = None) -> FastAPI:
     app = FastAPI(title="SQL Server Diagnostic Assistant", version=__version__)
 
-    # Allow the Vite dev server to call the API with credentials.
+    # Allow approved origins (see `allowed_origins`) to call the API.
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+        allow_origins=allowed_origins(),
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
