@@ -66,6 +66,9 @@ Open <http://localhost:5173>. By default the frontend uses its built-in mock
 and needs no backend; to exercise the real backend see
 [Mock vs. real backend](#mock-vs-real-backend).
 
+With the backend running, the interactive API docs (Swagger UI) are served at
+<http://127.0.0.1:8000/docs>.
+
 ---
 
 ## Backend
@@ -93,6 +96,13 @@ uv run uvicorn app.main:app --reload --port 8000
 - `--reload` restarts on code changes (dev only).
 - Drop `--reload` for a single-process run.
 
+> **Interactive API docs:** once the server is running, open
+> <http://127.0.0.1:8000/docs> for the auto-generated Swagger UI. You can
+> browse every endpoint, read the schemas, and **Try out** calls directly —
+> log in via `POST /auth/login` and click **Authorize** to use your bearer
+> token on the protected endpoints for the rest of the session. (FastAPI
+> also serves a read-only schema at `/openapi.json` and ReDoc at `/redoc`.)
+
 > **Note:** if you see a warning that `VIRTUAL_ENV` does not match the project
 > environment, it is harmless — `uv` uses `backend/.venv` regardless. To silence
 > it, run `unset VIRTUAL_ENV` first.
@@ -117,7 +127,9 @@ The store is seeded on startup so you have data to explore:
 
 ### Try the API
 
-Log in to get a bearer token, then call a protected endpoint:
+The quickest way to explore is the interactive docs at
+<http://127.0.0.1:8000/docs>. To try it from the shell instead, log in to get a
+bearer token, then call a protected endpoint:
 
 ```bash
 # 1. Log in (returns a bearer token)
@@ -136,9 +148,6 @@ curl -s http://localhost:8000/investigations -H "Authorization: Bearer $TOKEN"
 curl -s http://localhost:8000/reports/1 -H "Authorization: Bearer $TOKEN"
 curl -s http://localhost:8000/reports/1.pdf -H "Authorization: Bearer $TOKEN" -o report.pdf
 ```
-
-Interactive API docs (Swagger UI) are at <http://localhost:8000/docs> once the
-server is running.
 
 ### Authentication
 
@@ -305,6 +314,7 @@ Tasks are tracked as GitHub issues in this repository.
 
 | Symptom | Fix |
 | ------- | --- |
+| Want to explore the API interactively | Open the Swagger UI at <http://127.0.0.1:8000/docs> while the backend runs. |
 | `ModuleNotFoundError: No module named 'fastapi'` when running uvicorn | Run `uv sync` from `backend/`, and make sure you invoke via `uv run uvicorn ...` so the project venv is used. |
 | Warning that `VIRTUAL_ENV` does not match the project environment | Harmless; `uv` uses `backend/.venv`. Run `unset VIRTUAL_ENV` to silence it. |
 | `401 Unauthorized` from protected endpoints | Include the token: `-H "Authorization: Bearer $TOKEN"`. Get one via `POST /auth/login`. |
