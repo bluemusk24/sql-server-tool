@@ -1,15 +1,23 @@
 openapi: "3.1.0"
 info:
-  title: SQL Server Diagnostic Assistant
+  title: SQL Server Diagnostic Assistant — API
   version: "0.1.0"
   description: |
-    On-demand, read-only diagnostic assistant for Microsoft SQL Server.
-    A DBA signs in, enters a SQL Server connection, reviews and approves
-    the diagnostic query batch, and receives evidence, likely causes,
-    validation checks, and remediation guidance.
+    The API the React frontend expects. Every endpoint the frontend calls
+    is listed here with its method, path, request body, response body, and
+    whether it requires an authenticated session.
+
+    Authentication is session-cookie based (`credentials: "include"`). The
+    frontend resolves the session via `GET /auth/session`; unauthenticated
+    requests to protected endpoints return 401/403.
+
+    The frontend talks to this API through a single `ServiceClient` interface
+    (see `frontend/src/services/`). The mock implementation mirrors these
+    shapes exactly.
 servers:
   - url: http://localhost:8000
-    description: Local development
+    description: Local development (Vite proxy forwards /health, /auth,
+      /investigations, /jobs, /reports to here)
 tags:
   - name: auth
     description: OIDC session and authorization
@@ -18,57 +26,72 @@ tags:
   - name: approvals
     description: Per-query approve/reject decisions
   - name: jobs
-    description: Background diagnostic run status
+    description: Background diagnostic run lifecycle
   - name: reports
     description: Incident report payload and PDF
+  - name: orgs
+    description: Organization management
+
+# ── Auth ─────────────────────────────────────────────────────────────
 paths:
-  /health:
-    get:
-      tags: [health]
-      summary: Liveness and version
-      responses:
-        "200":
-          description: Service is healthy
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  status: { type: string }
-                  version: { type: string }
   /auth/session:
     get:
       tags: [auth]
       summary: Current session indicator
+      description: |
+        The frontend calls this on mount to resolve the caller. Returns the
+        session when authenticated; returns 404 when not (the frontend then
+        shows the login screen).
+      security: []
       responses:
         "200":
           description: Session resolved
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  organization: { type: string }
-                  actor: { type: string }
+                $ref: "#/components/schemas/Session"
         "404":
-          description: No session
+          description: No session (unauthenticated)
+
   /auth/authorize:
     get:
       tags: [auth]
       summary: Start OIDC authorization
+      description: |
+        Returns the IdP authorize URL. The frontend redirects the browser
+        there to complete the SSO flow.
+      security: []
       responses:
         "200":
           description: Authorize URL
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  authorize_url: { type: string }
+                $ref: "#/components/schemas/AuthorizationStart"
+
+# ── Health ───────────────────────────────────────────────────────────
+  /health:
+    get:
+      tags: [health]
+      summary: Liveness and version
+      description: Unauthenticated liveness probe used by the landing page.
+      security: []
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+# ── Investigations ──────────────────────────────────────────────────
   /investigations:
     get:
       tags: [investigations]
       summary: List investigations
+      description: Dashboard list of investigations (id + status only).
+      security:
+        - sessionCookie: []
       responses:
         "200":
           description: List of investigations
@@ -77,45 +100,41 @@ paths:
               schema:
                 type: array
                 items:
-                  type: object
-                  properties:
-                    id: { type: integer }
-                    status: { type: string }
+                  $ref: "#/components/schemas/InvestigationSummary"
+
     post:
       tags: [investigations]
       summary: Create investigation
+      description: |
+        Persists a new investigation and returns its id, status, and the
+        full review catalog. Never stores credentials.
+      security:
+        - sessionCookie: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required: [server_host, auth_type, lookback_hours]
-              properties:
-                server_host: { type: string }
-                server_port: { type: integer, default: 1433 }
-                auth_type: { type: string, enum: [sql, ad] }
-                databases:
-                  type: array
-                  items: { type: string }
-                lookback_hours: { type: integer, enum: [1, 4, 8, 24] }
+              $ref: "#/components/schemas/CreateInvestigationRequest"
       responses:
         "201":
           description: Created
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  id: { type: integer }
-                  status: { type: string }
-                  catalog:
-                    type: array
-                    items: { type: object }
+                $ref: "#/components/schemas/InvestigationResponse"
+        "403":
+          description: Caller's SSO issuer is not a registered organization
+        "422":
+          description: Validation error (host, port, lookback, scope)
+
   /investigations/{id}:
     get:
       tags: [investigations]
       summary: Get investigation
+      description: Returns the investigation with its catalog.
+      security:
+        - sessionCookie: []
       parameters:
         - name: id
           in: path
@@ -124,12 +143,21 @@ paths:
       responses:
         "200":
           description: Investigation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvestigationResponse"
         "404":
           description: Not found
+
+# ── Approvals ────────────────────────────────────────────────────────
   /investigations/{id}/approvals:
     get:
       tags: [approvals]
       summary: Get approval state
+      description: Returns per-query decisions and the computed state.
+      security:
+        - sessionCookie: []
       parameters:
         - name: id
           in: path
@@ -138,9 +166,22 @@ paths:
       responses:
         "200":
           description: Approval response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApprovalResponse"
+        "404":
+          description: Not found
+
     post:
       tags: [approvals]
       summary: Record decisions
+      description: |
+        Records approve/reject decisions for one or more catalog queries.
+        The response reflects the server's computed state, not a local
+        guess. A 409 means the run already started (read-only).
+      security:
+        - sessionCookie: []
       parameters:
         - name: id
           in: path
@@ -151,23 +192,31 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                decisions:
-                  type: object
-                  additionalProperties:
-                    type: string
-                    enum: [approved, rejected]
-                note: { type: string }
+              $ref: "#/components/schemas/ApprovalRequest"
       responses:
         "200":
           description: Updated approval response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApprovalResponse"
+        "404":
+          description: Not found
         "409":
-          description: Run already started
+          description: Run already started or cancelled
+        "422":
+          description: Unknown or non-approvable catalog id
+
+# ── Jobs ─────────────────────────────────────────────────────────────
   /investigations/{id}/run:
     post:
       tags: [jobs]
       summary: Start diagnostic run
+      description: |
+        Enqueues one diagnostic run behind the approval gate. Returns 202
+        with the arq job id without waiting on the run.
+      security:
+        - sessionCookie: []
       parameters:
         - name: id
           in: path
@@ -179,15 +228,19 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  job_id: { type: string }
+                $ref: "#/components/schemas/RunAccepted"
+        "404":
+          description: Not found
         "409":
           description: Gate closed or already started
+
   /jobs/{job_id}:
     get:
       tags: [jobs]
       summary: Job status
+      description: Current status of a job (result on success, error on failure).
+      security:
+        - sessionCookie: []
       parameters:
         - name: job_id
           in: path
@@ -196,12 +249,47 @@ paths:
       responses:
         "200":
           description: Job status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobStatusResponse"
         "404":
           description: Not found
+
+  /jobs/{job_id}/cancel:
+    post:
+      tags: [jobs]
+      summary: Cancel a job
+      description: |
+        Cancels a queued or running job. Returns the updated status
+        (canceled).
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Canceled job status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobStatusResponse"
+        "404":
+          description: Not found
+
+# ── Reports ──────────────────────────────────────────────────────────
   /reports/{id}:
     get:
       tags: [reports]
       summary: Report payload
+      description: |
+        Returns the full report payload (plan.md §8) for the dashboard.
+        Credential-free by construction.
+      security:
+        - sessionCookie: []
       parameters:
         - name: id
           in: path
@@ -210,12 +298,20 @@ paths:
       responses:
         "200":
           description: Report payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportPayload"
         "404":
           description: Not found
+
   /reports/{id}.pdf:
     get:
       tags: [reports]
       summary: Download PDF
+      description: Returns the investigation's report as a downloadable PDF.
+      security:
+        - sessionCookie: []
       parameters:
         - name: id
           in: path
@@ -231,3 +327,402 @@ paths:
                 format: binary
         "404":
           description: Not found
+        "500":
+          description: Render failed
+
+# ── Orgs ─────────────────────────────────────────────────────────────
+  /orgs:
+    get:
+      tags: [orgs]
+      summary: List organizations
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: List of organizations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Organization"
+
+    post:
+      tags: [orgs]
+      summary: Create organization
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateOrganizationRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Organization"
+
+  /orgs/{id}:
+    delete:
+      tags: [orgs]
+      summary: Deprovision organization
+      description: Removes the org's database and data.
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "204":
+          description: Deprovisioned
+        "404":
+          description: Not found
+
+# ── Schemas ──────────────────────────────────────────────────────────
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: session
+      description: |
+        Session cookie set after OIDC login. The frontend sends it via
+        `credentials: "include"`. All endpoints except /health and
+        /auth/* require it.
+
+  schemas:
+    Session:
+      type: object
+      required: [organization, actor]
+      properties:
+        organization: { type: string }
+        actor: { type: string }
+
+    AuthorizationStart:
+      type: object
+      required: [authorize_url]
+      properties:
+        authorize_url: { type: string, format: uri }
+
+    HealthStatus:
+      type: object
+      required: [status, version]
+      properties:
+        status: { type: string, example: ok }
+        version: { type: string, example: "0.1.0" }
+
+    CatalogEntry:
+      type: object
+      required:
+        - id
+        - key
+        - title
+        - description
+        - purpose
+        - category
+        - issue_area
+        - sql
+        - sql_text
+        - params
+        - requires_approval
+        - expected_impact
+        - versions
+        - min_permission
+        - read_only
+      properties:
+        id: { type: string }
+        key: { type: string }
+        title: { type: string }
+        description: { type: string }
+        purpose: { type: string }
+        category: { type: string }
+        issue_area: { type: string }
+        sql: { type: string }
+        sql_text: { type: string }
+        params:
+          type: array
+          items: { type: string }
+        requires_approval: { type: boolean }
+        expected_impact: { type: string }
+        versions:
+          type: array
+          items: { type: string }
+        min_permission: { type: string }
+        read_only: { type: boolean }
+
+    CreateInvestigationRequest:
+      type: object
+      required: [server_host, auth_type, lookback_hours]
+      properties:
+        server_host: { type: string, example: sql01.acme.example }
+        server_port: { type: integer, default: 1433, minimum: 1, maximum: 65535 }
+        auth_type: { type: string, enum: [sql, ad] }
+        databases:
+          type: array
+          items: { type: string }
+          nullable: true
+        lookback_hours: { type: integer, enum: [1, 4, 8, 24] }
+
+    InvestigationResponse:
+      type: object
+      required: [id, status, catalog]
+      properties:
+        id: { type: integer }
+        status: { type: string, example: draft }
+        catalog:
+          type: array
+          items:
+            $ref: "#/components/schemas/CatalogEntry"
+
+    InvestigationSummary:
+      type: object
+      required: [id, status]
+      properties:
+        id: { type: integer }
+        status: { type: string }
+
+    ApprovalRequest:
+      type: object
+      required: [decisions]
+      properties:
+        decisions:
+          type: object
+          additionalProperties:
+            type: string
+            enum: [approved, rejected]
+        note: { type: string, nullable: true }
+
+    ApprovalQuery:
+      type: object
+      required: [catalog_id, decision, actor, note, created_at]
+      properties:
+        catalog_id: { type: string }
+        decision:
+          type: string
+          enum: [approved, rejected, "null"]
+          nullable: true
+        actor: { type: string, nullable: true }
+        note: { type: string, nullable: true }
+        created_at: { type: string, nullable: true }
+
+    ApprovalResponse:
+      type: object
+      required: [investigation_id, state, queries]
+      properties:
+        investigation_id: { type: integer }
+        state: { type: string, enum: [pending, approved, rejected] }
+        queries:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApprovalQuery"
+
+    RunAccepted:
+      type: object
+      required: [job_id]
+      properties:
+        job_id: { type: string, example: "job-1710000000" }
+
+    JobStatusResponse:
+      type: object
+      required: [job_id, status, investigation_id, result, error]
+      properties:
+        job_id: { type: string }
+        status:
+          type: string
+          enum: [queued, running, succeeded, failed, canceled]
+        investigation_id: { type: integer, nullable: true }
+        result: {}
+        error: { type: string, nullable: true }
+
+    ReportPayload:
+      type: object
+      required:
+        - investigation_id
+        - organization
+        - server_host
+        - server_port
+        - database_scope
+        - databases
+        - lookback_hours
+        - investigation_time
+        - data_sources
+        - findings_by_area
+        - primary_cause
+        - alternatives
+        - confidence_percent
+        - confidence_label
+        - severity
+        - rationale
+        - inconclusive
+        - coverage_gaps
+        - recommendations
+        - validation_checks
+        - remediation
+        - read_only_disclaimer
+      properties:
+        investigation_id: { type: integer, nullable: true }
+        organization: { type: string }
+        server_host: { type: string }
+        server_port: { type: integer }
+        database_scope: { type: string, example: instance }
+        databases:
+          type: array
+          items: { type: string }
+        lookback_hours: { type: integer }
+        investigation_time: { type: string, format: date-time }
+        data_sources:
+          type: array
+          items:
+            $ref: "#/components/schemas/DataSourceReport"
+        findings_by_area:
+          type: array
+          items:
+            $ref: "#/components/schemas/AreaFindings"
+        primary_cause:
+          $ref: "#/components/schemas/Cause"
+        alternatives:
+          type: array
+          items:
+            $ref: "#/components/schemas/Cause"
+        confidence_percent: { type: integer, minimum: 0, maximum: 100 }
+        confidence_label: { type: string, enum: [low, medium, high] }
+        severity: { type: string, enum: [high, medium, low] }
+        rationale: { type: string }
+        inconclusive: { type: boolean }
+        coverage_gaps:
+          type: array
+          items:
+            $ref: "#/components/schemas/CoverageGap"
+        recommendations:
+          type: array
+          items:
+            $ref: "#/components/schemas/Recommendation"
+        validation_checks:
+          type: array
+          items: { type: string }
+        remediation:
+          type: array
+          items:
+            $ref: "#/components/schemas/RemediationStep"
+        read_only_disclaimer: { type: string }
+
+    DataSourceReport:
+      type: object
+      required: [source_id, title, category, issue_area, status, checked, note]
+      properties:
+        source_id: { type: string }
+        title: { type: string }
+        category: { type: string }
+        issue_area: { type: string }
+        status: { type: string, enum: [collected, partial, unavailable] }
+        checked: { type: boolean }
+        note: { type: string }
+
+    CoverageGap:
+      type: object
+      required: [source_id, issue_area, status, note]
+      properties:
+        source_id: { type: string }
+        issue_area: { type: string }
+        status: { type: string, enum: [collected, partial, unavailable] }
+        note: { type: string }
+
+    Signal:
+      type: object
+      required: [rule_id, area, severity, title, description, evidence_ids]
+      properties:
+        rule_id: { type: string }
+        area: { type: string }
+        severity: { type: string, enum: [high, medium, low] }
+        title: { type: string }
+        description: { type: string }
+        evidence_ids:
+          type: array
+          items: { type: string }
+
+    AreaFindings:
+      type: object
+      required:
+        - area
+        - severity
+        - confidence_percent
+        - confidence_label
+        - signal_count
+        - findings
+        - evidence
+      properties:
+        area: { type: string }
+        severity: { type: string, enum: [high, medium, low, none] }
+        confidence_percent: { type: integer, minimum: 0, maximum: 100 }
+        confidence_label: { type: string, enum: [low, medium, high] }
+        signal_count: { type: integer, minimum: 0 }
+        findings:
+          type: array
+          items:
+            $ref: "#/components/schemas/Signal"
+        evidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/EvidenceItem"
+
+    EvidenceItem:
+      type: object
+      required: [evidence_id, area, timestamp, description, details]
+      properties:
+        evidence_id: { type: string }
+        area: { type: string }
+        timestamp: { type: string, format: date-time, nullable: true }
+        description: { type: string }
+        details: { type: object }
+
+    RemediationStep:
+      type: object
+      required: [step, draft_sql, disclaimer]
+      properties:
+        step: { type: string }
+        draft_sql: { type: string, nullable: true }
+        disclaimer: { type: string }
+
+    Recommendation:
+      type: object
+      required: [area, validation_checks, remediation, disclaimer]
+      properties:
+        area: { type: string, nullable: true }
+        validation_checks:
+          type: array
+          items: { type: string }
+        remediation:
+          type: array
+          items:
+            $ref: "#/components/schemas/RemediationStep"
+        disclaimer: { type: string }
+
+    Cause:
+      type: object
+      required: [title, description, confidence_percent, confidence_label]
+      properties:
+        title: { type: string }
+        description: { type: string }
+        confidence_percent: { type: integer, minimum: 0, maximum: 100 }
+        confidence_label: { type: string, enum: [low, medium, high] }
+
+    Organization:
+      type: object
+      required: [id, name, issuer]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        issuer: { type: string }
+
+    CreateOrganizationRequest:
+      type: object
+      required: [name, issuer]
+      properties:
+        name: { type: string }
+        issuer: { type: string, format: uri }
