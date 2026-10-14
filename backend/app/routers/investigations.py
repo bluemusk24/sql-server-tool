@@ -8,9 +8,11 @@ once a run has started, and a run cannot start until the gate is approved.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
+from sqlalchemy.orm import Session
 
 from app import live
 from app.auth import CurrentUser, get_current_user
@@ -202,6 +204,108 @@ def record_decisions(
     return _approval_response(inv_id, decisions)
 
 
+def _execute_run(
+    *,
+    session_factory: Callable[[], Session],
+    job_id: str,
+    inv_id: int,
+    organization: str,
+    entries: list[dict[str, Any]] | None,
+    settings: live.ConnectionSettings | None,
+    lookback_hours: int,
+    databases: list[str] | None,
+) -> None:
+    """Execute a diagnostic run on a worker thread (#29).
+
+    Runs outside the request's session — it owns a fresh one — so it can
+    outlive the 202 response. Cancellation is cooperative: the collection
+    loop re-reads the job row between sources, and ``POST /jobs/{id}/cancel``
+    flips it to ``canceled``, stopping the run while keeping the partial
+    evidence. The overall budget (``LIVE_RUN_TIMEOUT_SECONDS``) stops
+    runaway runs the same way.
+    """
+    session = session_factory()
+    try:
+        store = DatabaseStore(session)
+        inv = store.get_investigation(inv_id)
+        if inv is None:
+            return
+        current = store.get_job(job_id)
+        if current is not None and current.status == "canceled":
+            # Canceled before the worker even got going (#29): keep the
+            # state and still publish a report for the investigation.
+            store.set_investigation_status(inv_id, "canceled")
+            store.generate_report(inv, organization, collection=None)
+            session.commit()
+            return
+        store.update_job(job_id, status="running")
+
+        timed_out = False
+        collection: list[dict[str, Any]] | None = None
+        if entries is not None and settings is not None:
+
+            def _canceled() -> bool:
+                current = store.get_job(job_id)
+                return current is not None and current.status == "canceled"
+
+            try:
+                outcomes = live.run_collection(
+                    entries,
+                    settings,
+                    lookback_hours,
+                    databases,
+                    deadline_seconds=live.run_timeout_seconds(),
+                    should_abort=_canceled,
+                )
+            except live.RunTimeout as exc:
+                outcomes = exc.outcomes
+                timed_out = True
+            if _canceled() or timed_out:
+                # Sources never reached become explicit coverage gaps
+                # instead of silently vanishing from the report (#29).
+                outcomes = live.mark_uncollected(
+                    entries,
+                    outcomes,
+                    "run stopped before this source was collected",
+                )
+            collection = [outcome.to_dict() for outcome in outcomes]
+
+        current = store.get_job(job_id)
+        if current is not None and current.status == "canceled":
+            store.set_investigation_status(inv_id, "canceled")
+        elif timed_out:
+            store.update_job(
+                job_id,
+                status="failed",
+                error=(
+                    "run exceeded the overall timeout "
+                    f"({live.run_timeout_seconds()}s)"
+                ),
+            )
+            store.set_investigation_status(inv_id, "failed")
+        else:
+            store.update_job(
+                job_id, status="succeeded", result={"investigation_id": inv_id}
+            )
+            store.set_investigation_status(inv_id, "completed")
+        # A canceled or timed-out run still keeps what it gathered — the
+        # report marks the rest as coverage gaps.
+        store.generate_report(inv, organization, collection=collection)
+        session.commit()
+    except Exception:
+        logger.exception("run %s failed", job_id)
+        session.rollback()
+        try:
+            DatabaseStore(session).update_job(
+                job_id, status="failed", error="run failed; see server logs"
+            )
+            session.commit()
+        except Exception:
+            logger.exception("could not record failure for job %s", job_id)
+    finally:
+        session.close()
+
+
 @router.post(
     "/investigations/{inv_id}/run",
     response_model=RunAccepted,
@@ -209,6 +313,8 @@ def record_decisions(
 )
 def start_run(
     inv_id: int,
+    background_tasks: BackgroundTasks,
+    request: Request,
     payload: StartRunRequest | None = None,
     store: DatabaseStore = Depends(get_store),
     user: CurrentUser = Depends(get_current_user),
@@ -248,7 +354,8 @@ def start_run(
     # Credentials present → live collection (#31). The password lives only
     # in this request frame: it is handed to the driver, never stored, and
     # nothing below this line receives it.
-    collection: list[dict[str, Any]] | None = None
+    entries: list[dict[str, Any]] | None = None
+    settings: live.ConnectionSettings | None = None
     if credentials is not None:
         approved_ids = {
             cid for cid, decision in decisions.items() if decision.decision == "approved"
@@ -264,26 +371,29 @@ def start_run(
             for entry in inv.catalog
             if entry.id in approved_ids
         ]
-        outcomes = live.run_collection(
-            entries,
-            live.ConnectionSettings(
-                server_host=inv.server_host,
-                server_port=inv.server_port,
-                auth_type=inv.auth_type,
-                username=credentials.username,
-                password=credentials.password,
-                timeout_seconds=live.query_timeout_seconds(),
-            ),
-            lookback_hours=inv.lookback_hours,
-            databases=inv.databases,
+        settings = live.ConnectionSettings(
+            server_host=inv.server_host,
+            server_port=inv.server_port,
+            auth_type=inv.auth_type,
+            username=credentials.username,
+            password=credentials.password,
+            timeout_seconds=live.query_timeout_seconds(),
         )
-        collection = [outcome.to_dict() for outcome in outcomes]
 
-    # Without credentials the run keeps the seeded demo report so the
-    # dashboard always has something to render.
-    store.update_job(job.job_id, status="succeeded", result={"investigation_id": inv_id})
-    store.set_investigation_status(inv_id, "completed")
-    store.generate_report(inv, user.organization, collection=collection)
+    # Execute on a worker thread with its own DB session (#29): the 202
+    # returns the job id immediately, so the job status surface can be
+    # polled — and the run canceled — while collection is in flight.
+    background_tasks.add_task(
+        _execute_run,
+        session_factory=request.app.state.SessionLocal,
+        job_id=job.job_id,
+        inv_id=inv_id,
+        organization=user.organization,
+        entries=entries,
+        settings=settings,
+        lookback_hours=inv.lookback_hours,
+        databases=inv.databases,
+    )
     return RunAccepted(job_id=job.job_id)
 
 

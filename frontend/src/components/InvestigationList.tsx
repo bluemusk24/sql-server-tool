@@ -25,7 +25,8 @@ type State =
 
 /** Where the DBA should go next, given the investigation's status. */
 function nextLink(id: number, status: string): { to: string; label: string } {
-  if (status === "completed") {
+  // Canceled and timed-out runs keep their partial reports (#29).
+  if (status === "completed" || status === "canceled" || status === "failed") {
     return { to: `/investigations/${id}/report`, label: "View report" };
   }
   return { to: `/investigations/${id}/approve`, label: "Review approvals" };

@@ -271,6 +271,13 @@ paths:
         session-only — they are used to open the connection and are never
         stored in the investigation, job, report, or logs. Omitting the
         body keeps the seeded demo path (no connection is attempted).
+
+        The run executes on a worker thread: poll `/jobs/{job_id}` for
+        progress, cancel a run in flight with `/jobs/{job_id}/cancel`, and
+        expect `failed` when the overall budget (`LIVE_RUN_TIMEOUT_SECONDS`,
+        default 600s) runs out (#29). Canceled and timed-out runs keep the
+        evidence already collected; never-reached sources become coverage
+        gaps in the report.
       security:
         - bearerAuth: []
       parameters:
@@ -325,8 +332,11 @@ paths:
       tags: [jobs]
       summary: Cancel a job
       description: |
-        Cancels a queued or running job. Returns the updated status
-        (canceled).
+        Cancels a queued or running job. Cancellation is cooperative: the
+        collection loop re-reads the job row between sources, so a run in
+        flight stops at the next source boundary and keeps the evidence
+        it already gathered (#29). Returns the updated status (canceled);
+        terminal jobs are returned unchanged.
       security:
         - bearerAuth: []
       parameters:

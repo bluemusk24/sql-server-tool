@@ -72,6 +72,22 @@ describe("InvestigationList", () => {
     expect(screen.queryByText(/OISSQL:1433/)).toBeNull();
   });
 
+  it("links a canceled or failed run to its partial report (#29)", async () => {
+    vi.spyOn(services, "listInvestigations").mockResolvedValue([
+      summary({ id: 5, status: "canceled" }),
+      summary({
+        id: 6,
+        status: "failed",
+        server_host: "sql-dr-02.corp.example",
+      }),
+    ]);
+
+    render(<InvestigationList />, { wrapper: MemoryRouter });
+
+    const links = await screen.findAllByRole("link", { name: /view report/i });
+    expect(links).toHaveLength(2);
+  });
+
   it("shows the empty state", async () => {
     vi.spyOn(services, "listInvestigations").mockResolvedValue([]);
 

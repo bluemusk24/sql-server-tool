@@ -3,10 +3,10 @@
  *
  * Reached from the approval screen after starting a run. Polls
  * `GET /jobs/{job_id}` until the job reaches a terminal state, then
- * offers a link to the generated report. The current in-memory backend
- * finishes synchronously, so the first poll usually already shows
- * "succeeded" — the polling loop is here so the screen also works
- * against a real asynchronous backend.
+ * offers a link to the generated report. Runs execute on a backend
+ * worker thread (#29), so this screen is where the DBA watches — and
+ * can cancel — a run in flight. A canceled or failed run keeps the
+ * evidence it managed to collect, so its report link reads "partial".
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -26,6 +26,8 @@ type State =
 export function JobStatusPage() {
   const { jobId } = useParams<{ jobId: string }>();
   const [state, setState] = useState<State>({ status: "loading" });
+  const [canceling, setCanceling] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const poll = useCallback(async () => {
@@ -45,6 +47,22 @@ export function JobStatusPage() {
       });
     }
   }, [jobId]);
+
+  const onCancel = useCallback(async () => {
+    if (!jobId) return;
+    setCanceling(true);
+    setCancelError(null);
+    try {
+      await services.cancelJob(jobId);
+      await poll(); // pick up the canceled state right away
+    } catch (error) {
+      setCancelError(
+        error instanceof Error ? error.message : "could not cancel the run",
+      );
+    } finally {
+      setCanceling(false);
+    }
+  }, [jobId, poll]);
 
   useEffect(() => {
     setState({ status: "loading" });
@@ -91,7 +109,19 @@ export function JobStatusPage() {
         </strong>
       </p>
 
-      {state.status === "running" && <p>The run is in progress…</p>}
+      {state.status === "running" && (
+        <p>
+          The run is in progress…{" "}
+          <button
+            type="button"
+            onClick={() => void onCancel()}
+            disabled={canceling}
+          >
+            {canceling ? "Canceling…" : "Cancel run"}
+          </button>
+        </p>
+      )}
+      {cancelError && <p role="alert">{cancelError}</p>}
 
       {job.status === "succeeded" && invId !== null && (
         <p>
@@ -101,9 +131,31 @@ export function JobStatusPage() {
         </p>
       )}
       {job.status === "failed" && (
-        <p role="alert">The run failed: {job.error ?? "unknown error"}</p>
+        <p role="alert">
+          The run failed: {job.error ?? "unknown error"}
+          {invId !== null && (
+            <>
+              {" "}
+              <Link to={`/investigations/${invId}/report`}>
+                View partial report
+              </Link>
+            </>
+          )}
+        </p>
       )}
-      {job.status === "canceled" && <p>The run was canceled.</p>}
+      {job.status === "canceled" && (
+        <p>
+          The run was canceled.
+          {invId !== null && (
+            <>
+              {" "}
+              <Link to={`/investigations/${invId}/report`}>
+                View partial report
+              </Link>
+            </>
+          )}
+        </p>
+      )}
 
       <p>
         <Link to="/">Back to investigations</Link>

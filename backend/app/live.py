@@ -26,11 +26,15 @@ from __future__ import annotations
 
 import os
 import re
+import time
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 DEFAULT_QUERY_TIMEOUT_SECONDS = 30
+
+#: Overall run budget (#29) so an abandoned run can't consume the instance.
+DEFAULT_RUN_TIMEOUT_SECONDS = 600
 
 #: Cap the evidence kept per source so one runaway query can't bloat a report.
 MAX_EVIDENCE_ROWS = 100
@@ -107,6 +111,16 @@ def query_timeout_seconds() -> int:
     except ValueError:
         return DEFAULT_QUERY_TIMEOUT_SECONDS
     return value if value > 0 else DEFAULT_QUERY_TIMEOUT_SECONDS
+
+
+def run_timeout_seconds() -> int:
+    """Overall run budget from ``$LIVE_RUN_TIMEOUT_SECONDS`` (default 600)."""
+    raw = os.environ.get("LIVE_RUN_TIMEOUT_SECONDS", "")
+    try:
+        value = int(raw)
+    except ValueError:
+        return DEFAULT_RUN_TIMEOUT_SECONDS
+    return value if value > 0 else DEFAULT_RUN_TIMEOUT_SECONDS
 
 
 def driver_available() -> bool:
@@ -221,6 +235,47 @@ def _jsonable(value: Any) -> Any:
     return str(value)
 
 
+class RunTimeout(RuntimeError):
+    """The overall run budget ran out (#29).
+
+    Carries the outcomes collected before the deadline so a timed-out
+    run can still publish its partial evidence.
+    """
+
+    def __init__(self, outcomes: list[SourceOutcome]) -> None:
+        super().__init__("run exceeded the overall timeout")
+        self.outcomes = outcomes
+
+
+def mark_uncollected(
+    entries: Iterable[dict[str, Any]],
+    outcomes: list[SourceOutcome],
+    note: str,
+) -> list[SourceOutcome]:
+    """Honesty pad for a stopped run (#29).
+
+    Sources the run never reached become explicit ``unavailable``
+    outcomes, so the report lists them as coverage gaps instead of
+    silently omitting them (spec §3.8).
+    """
+    seen = {outcome.source_id for outcome in outcomes}
+    padded = list(outcomes)
+    for entry in entries:
+        if entry["id"] in seen:
+            continue
+        padded.append(
+            SourceOutcome(
+                source_id=entry["id"],
+                title=entry["title"],
+                category=entry["category"],
+                issue_area=entry["issue_area"],
+                status="unavailable",
+                note=note,
+            )
+        )
+    return padded
+
+
 def run_collection(
     entries: Iterable[dict[str, Any]],
     settings: ConnectionSettings,
@@ -228,12 +283,20 @@ def run_collection(
     databases: list[str] | None = None,
     *,
     connect_fn: Callable[[ConnectionSettings], _Connection] | None = None,
+    deadline_seconds: float | None = None,
+    should_abort: Callable[[], bool] | None = None,
 ) -> list[SourceOutcome]:
     """Collect evidence for each entry; never raises for server problems.
 
     `entries` must be the catalog rows the DBA approved for this run — the
     caller resolves them from the seeded catalog, and anything not in that
     set is refused here as defense in depth.
+
+    ``should_abort`` is consulted between sources: a true return stops the
+    run early and whatever was collected is returned (cancellation, #29).
+    ``deadline_seconds`` caps the whole run; exceeding it raises
+    :class:`RunTimeout` carrying the partial outcomes. Both leave the
+    sources they skipped for the caller to mark as uncollected.
     """
     entry_list = list(entries)
     connect = connect_fn or open_connection  # late bind: tests can patch it
@@ -253,12 +316,19 @@ def run_collection(
             for entry in entry_list
         ]
 
+    started = time.monotonic()
+    outcomes: list[SourceOutcome] = []
     try:
         conn.timeout = settings.timeout_seconds
-        return [
-            _collect_one(conn, entry, lookback_hours, databases)
-            for entry in entry_list
-        ]
+        for entry in entry_list:
+            if should_abort is not None and should_abort():
+                break
+            if deadline_seconds is not None and (
+                time.monotonic() - started >= deadline_seconds
+            ):
+                raise RunTimeout(outcomes)
+            outcomes.append(_collect_one(conn, entry, lookback_hours, databases))
+        return outcomes
     finally:
         try:
             conn.close()
@@ -311,11 +381,14 @@ def _collect_one(
 __all__ = [
     "ConnectionSettings",
     "LiveUnavailableError",
+    "RunTimeout",
     "SourceOutcome",
     "build_connection_string",
     "driver_available",
+    "mark_uncollected",
     "open_connection",
     "query_timeout_seconds",
     "render_sql",
     "run_collection",
+    "run_timeout_seconds",
 ]
