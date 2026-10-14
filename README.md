@@ -707,3 +707,21 @@ Tasks are tracked as GitHub issues in this repository.
 | Frontend shows mock data even though the backend runs | Expected — the mock is the default. Set `VITE_USE_MOCK=false` in `frontend/.env.local`. |
 | Frontend cannot reach the backend in real mode | Keep the Vite proxy config (leave `VITE_API_BASE_URL` empty) or set it to `http://localhost:8000` and ensure the backend is running. |
 | Want to reset all data back to the demo seed | Stop the backend and delete the database file: `rm -f backend/sqlserver_tool.db` (or the path in `DATABASE_URL`). It re-seeds on the next start. |
+| `docker rm -f $(docker ps -aq)` says "requires at least 1 argument" | Harmless — it means **no containers exist** (the list was empty, so the command got no arguments). Your Docker is already clean. |
+
+### Docker cleanup cheat-sheet
+
+```bash
+# Empty-safe "remove every container" (quiet when there are none):
+docker ps -aq | xargs -r docker rm -f
+
+# The same thing the hard way — note the gotcha:
+docker rm -f $(docker ps -aq)   # errors "requires at least 1 argument" when no containers exist
+
+# Compose stack lifecycle:
+docker compose down        # stop app + db, KEEP the pgdata volume (data survives)
+docker compose down -v     # stop and DELETE the volume too (fresh schema + reseed next up)
+
+# Tidy images and build cache:
+docker system prune -f     # dangling images, stopped containers, unused build cache
+```
