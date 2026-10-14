@@ -624,6 +624,10 @@ docker compose up --build
 - The standalone `make container` target also uses host port 8080 — remove
   that container first (`docker rm -f sdip`; its `sdip-data` volume is
   untouched) before `docker compose up`.
+- If the app ever crash-loops with `failed to resolve host 'db'`, Docker
+  Desktop (WSL2 backend) has dropped the container's network attachment —
+  the compose file is fine. Recreate it:
+  `docker compose up -d --force-recreate app`.
 
 ### Frontend on Vercel
 
