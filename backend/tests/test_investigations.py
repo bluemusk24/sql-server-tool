@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 
-import pytest
 from fastapi.testclient import TestClient
 
 from app.store import CATALOG
@@ -71,11 +70,30 @@ def test_list_includes_seeded_and_created(
 
 
 def test_backend_log_names_target_server(
-    client: TestClient, auth_headers: dict[str, str], caplog: pytest.LogCaptureFixture
+    client: TestClient, auth_headers: dict[str, str]
 ) -> None:
     """The backend's own log names the investigated server on create and
-    on run start, so an observer can watch without the frontend (#34)."""
-    with caplog.at_level(logging.INFO, logger="sqldiag.investigations"):
+    on run start, so an observer can watch without the frontend (#34).
+
+    A handler is attached to the logger directly (rather than relying on
+    pytest's caplog capture plumbing, which proved flaky under CI): this
+    is exactly what an external log shipper would do.
+    """
+
+    class _Recorder(logging.Handler):
+        def __init__(self) -> None:
+            super().__init__()
+            self.messages: list[str] = []
+
+        def emit(self, record: logging.LogRecord) -> None:
+            self.messages.append(record.getMessage())
+
+    recorder = _Recorder()
+    target_logger = logging.getLogger("sqldiag.investigations")
+    target_logger.addHandler(recorder)
+    previous_level = target_logger.level
+    target_logger.setLevel(logging.INFO)
+    try:
         created = _create(client, auth_headers)
         inv_id = created["id"]
 
@@ -87,8 +105,11 @@ def test_backend_log_names_target_server(
         )
         response = client.post(f"/investigations/{inv_id}/run", headers=auth_headers)
         assert response.status_code == 202
+    finally:
+        target_logger.removeHandler(recorder)
+        target_logger.setLevel(previous_level)
 
-    messages = [record.getMessage() for record in caplog.records]
+    messages = recorder.messages
     created_line = next(m for m in messages if m.startswith("investigation"))
     assert "sql02.acme.example:1433" in created_line
     assert "dba" in created_line

@@ -25,7 +25,9 @@ import type { Page } from "@playwright/test";
 
 const DBA = { username: "dba", password: "dba-password" };
 const ADMIN = { username: "admin", password: "admin-password" };
-const TARGET_HOST = "sql-e2e.example";
+// Unique per run: repeated runs against a persistent database must not
+// collide on the list-page row filter (strict-mode needs ONE match).
+const TARGET_HOST = `sql-e2e-${Date.now()}.example`;
 
 async function login(
   page: Page,
@@ -110,12 +112,14 @@ test("DBA creates an investigation, approver reviews and runs it, DBA sees the r
 
   // ── Back to session 1: the cross-session result is visible ───────
   await dba.goto("/");
-  const row = dba.locator(".investigation-list li", {
+  const rows = dba.locator(".investigation-list li", {
     hasText: TARGET_HOST,
   });
+  // Exactly one row — this run's investigation, no look-alikes.
+  await expect(rows).toHaveCount(1);
   // The lifecycle pill flipped to completed for the DBA too.
-  await expect(row.locator('strong[data-state="completed"]')).toBeVisible();
-  await row.getByRole("link").click();
+  await expect(rows.locator('strong[data-state="completed"]')).toBeVisible();
+  await rows.getByRole("link").click();
   await expect(
     dba.getByRole("heading", { name: /diagnostic report/i }),
   ).toBeVisible();
