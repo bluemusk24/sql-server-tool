@@ -25,6 +25,27 @@ print(
     flush=True,
 )
 
+# pytest's --log-disable (dest=logger_disable) disables named loggers at
+# plugin-init time — before this file imports. Print where the list came
+# from if it is non-empty in this process.
+import sys as _sys
+
+import pytest as _pytest
+
+
+def pytest_configure(config: _pytest.Config) -> None:
+    import os as _os
+
+    disable_list = getattr(config.option, "logger_disable", None)
+    log_env = {k: v for k, v in _os.environ.items() if "PYTEST" in k or k.startswith("LOG")}
+    print(
+        f"LOG-DISABLE-LIST disable={disable_list!r}\n"
+        f"argv={_sys.argv!r}\n"
+        f"inifile={config.inifile!r} addopts={config.getoption('addopts', default=None)!r}\n"
+        f"log_env={log_env!r} pytest={_pytest.__version__}",
+        flush=True,
+    )
+
 # If the snapshot above is False, this tracer catches the exact stack
 # of whoever flips .disabled to True afterwards (data descriptor on the
 # class beats instance attributes).
