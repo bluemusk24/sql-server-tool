@@ -14,6 +14,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ConnectionScopeForm,
+  isValidHost,
   validate,
   type FormState,
 } from "../pages/ConnectionScopeForm";
@@ -241,5 +242,79 @@ describe("ConnectionScopeForm", () => {
         expect.objectContaining({ auth_type: "ad" }),
       );
     });
+  });
+
+  it("swaps the port field for a SQL Browser note when an instance is typed", async () => {
+    const create = vi
+      .spyOn(services, "createInvestigation")
+      .mockResolvedValue({
+        id: 11,
+        status: "draft",
+        server_host: "ATADBETSP001\\OISSQL",
+        server_port: 1433,
+        auth_type: "sql",
+        databases: null,
+        lookback_hours: 4,
+        created_at: "2026-10-14T10:00:00Z",
+        catalog: [],
+      });
+
+    renderForm();
+    fireEvent.change(screen.getByLabelText(/server host/i), {
+      target: { value: "ATADBETSP001\\OISSQL" },
+    });
+    fireEvent.change(screen.getByLabelText(/password/i), {
+      target: { value: "pw" },
+    });
+
+    // The port input is gone; the note explains where the port comes from.
+    expect(screen.queryByLabelText(/^port$/i)).toBeNull();
+    expect(
+      screen.getByText(/discovered automatically via SQL Browser/i),
+    ).toBeTruthy();
+
+    submit();
+
+    // The typed instance, the API's default port, no password.
+    await waitFor(() => {
+      expect(create).toHaveBeenCalledWith({
+        server_host: "ATADBETSP001\\OISSQL",
+        server_port: 1433,
+        auth_type: "sql",
+        databases: null,
+        lookback_hours: 4,
+      });
+    });
+  });
+});
+
+describe("isValidHost — named instances (#37)", () => {
+  it("accepts plain hosts, IPs, and HOST\\INSTANCE", () => {
+    const accepted = [
+      "sql01",
+      "sql01.acme.example",
+      "10.20.30.40",
+      "ATADBETSP001\\OISSQL",
+      "SQLPROD01\\SQLEXPRESS",
+      "sql01.corp.example\\INST_01",
+    ];
+    for (const value of accepted) {
+      expect(isValidHost(value), value).toBe(true);
+    }
+  });
+
+  it("rejects malformed instance syntax", () => {
+    const rejected = [
+      "",
+      "HOST\\",
+      "\\INST",
+      "A\\B\\C",
+      "HOST\\bad name",
+      "HOST\\-leading-dash",
+      "not a host!",
+    ];
+    for (const value of rejected) {
+      expect(isValidHost(value), value).toBe(false);
+    }
   });
 });

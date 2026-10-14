@@ -61,6 +61,17 @@ describe("InvestigationList", () => {
     expect(screen.getByRole("link", { name: /view report/i })).toBeTruthy();
   });
 
+  it("renders a named instance bare, without a port suffix (#37)", async () => {
+    vi.spyOn(services, "listInvestigations").mockResolvedValue([
+      summary({ id: 3, server_host: "ATADBETSP001\\OISSQL" }),
+    ]);
+
+    render(<InvestigationList />, { wrapper: MemoryRouter });
+
+    expect(await screen.findByText("ATADBETSP001\\OISSQL")).toBeTruthy();
+    expect(screen.queryByText(/OISSQL:1433/)).toBeNull();
+  });
+
   it("shows the empty state", async () => {
     vi.spyOn(services, "listInvestigations").mockResolvedValue([]);
 

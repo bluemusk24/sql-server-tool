@@ -13,6 +13,7 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ApiError, services } from "../services";
 import type { ReportPayload } from "../services/types";
+import { formatServerTarget } from "../lib/format";
 
 type State =
   | { status: "loading" }
@@ -100,7 +101,7 @@ export function ReportPage() {
         <dl>
           <dt>Server</dt>
           <dd>
-            {r.server_host}:{r.server_port}
+            {formatServerTarget(r.server_host, r.server_port)}
           </dd>
           <dt>Scope</dt>
           <dd>{r.database_scope}</dd>

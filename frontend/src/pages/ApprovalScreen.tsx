@@ -6,6 +6,7 @@ import type {
   ApprovalResponse,
   InvestigationResponse,
 } from "../services/types";
+import { formatServerTarget } from "../lib/format";
 import { QuerySql } from "../components/QuerySql";
 
 interface DecisionMap {
@@ -150,7 +151,10 @@ export const ApprovalScreen: FC = () => {
       <section className="target-server">
         Target server:{" "}
         <strong>
-          {investigation.server_host}:{investigation.server_port}
+          {formatServerTarget(
+            investigation.server_host,
+            investigation.server_port,
+          )}
         </strong>{" "}
         · {investigation.auth_type === "ad" ? "Active Directory auth" : "SQL auth"}{" "}
         · last {investigation.lookback_hours}h

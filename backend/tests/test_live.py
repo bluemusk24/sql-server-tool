@@ -23,6 +23,7 @@ from app.live import (
     ConnectionSettings,
     LiveUnavailableError,
     build_connection_string,
+    display_target,
     query_timeout_seconds,
     render_sql,
     run_collection,
@@ -102,6 +103,24 @@ def test_connection_string_for_ad_uses_integrated_auth() -> None:
     conn_str = build_connection_string(sql_settings(auth_type="ad"))
     assert "Authentication=ActiveDirectoryIntegrated" in conn_str
     assert "UID" not in conn_str and "PWD" not in conn_str
+
+
+def test_connection_string_for_named_instance_omits_the_port() -> None:
+    # A named instance addresses itself: the driver resolves the port via
+    # SQL Browser, so nothing numeric may be appended (#37).
+    settings = sql_settings(server_host="ATADBETSP001\\OISSQL")
+    conn_str = build_connection_string(settings)
+    assert "SERVER=ATADBETSP001\\OISSQL;" in conn_str
+    assert ",1433" not in conn_str
+
+
+def test_display_target_shapes_error_messages() -> None:
+    # Plain hosts keep `host:port`; named instances never show a port (#37).
+    assert display_target(sql_settings()) == "sql-prod-01:1433"
+    assert (
+        display_target(sql_settings(server_host="ATADBETSP001\\OISSQL"))
+        == "ATADBETSP001\\OISSQL"
+    )
 
 
 def test_settings_repr_never_contains_the_password() -> None:

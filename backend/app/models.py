@@ -7,11 +7,12 @@ TypeScript types already expect).
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ── Enums ────────────────────────────────────────────────────────────
@@ -74,6 +75,48 @@ class CatalogEntry(BaseModel):
     read_only: bool
 
 
+# ── Server host validation (#37) ────────────────────────────────────
+# Mirrors `isValidHost` in the frontend: hostname, FQDN, IPv4, IPv6 —
+# or the DBA-style `HOST\INSTANCE`, which the run resolves through the
+# SQL Browser service. Server-side because the frontend can be bypassed.
+_IPV4_RE = re.compile(
+    r"^(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)"
+    r"(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$"
+)
+_HOST_LABEL_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
+_IPV6_RE = re.compile(r"^[0-9a-fA-F:]+$")
+#: The `\INSTANCE` suffix: alnum-initial, then alnum / `_` / `-`.
+_INSTANCE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
+
+
+def _valid_host_name(host: str) -> bool:
+    if host == "" or len(host) > 253:
+        return False
+    if _IPV4_RE.fullmatch(host):
+        return True
+    if ":" in host:
+        return _IPV6_RE.fullmatch(host) is not None
+    return all(
+        _HOST_LABEL_RE.fullmatch(label)
+        for label in host.removesuffix(".").split(".")
+    )
+
+
+def valid_server_host(value: str) -> bool:
+    """True for `host`, FQDN, IP, or a single-slash `HOST\\INSTANCE`."""
+    host = value.strip()
+    if host == "":
+        return False
+    slash = host.find("\\")
+    if slash == -1:
+        return _valid_host_name(host)
+    if host.find("\\", slash + 1) != -1:
+        return False  # exactly one backslash
+    return _valid_host_name(host[:slash]) and bool(
+        _INSTANCE_RE.fullmatch(host[slash + 1 :])
+    )
+
+
 # ── Investigations ───────────────────────────────────────────────────
 class CreateInvestigationRequest(BaseModel):
     server_host: str = Field(min_length=1)
@@ -81,6 +124,15 @@ class CreateInvestigationRequest(BaseModel):
     auth_type: AuthType
     databases: list[str] | None = None
     lookback_hours: LookbackHours
+
+    @field_validator("server_host")
+    @classmethod
+    def _server_host_format(cls, value: str) -> str:
+        if not valid_server_host(value):
+            raise ValueError(
+                "Enter a valid hostname, IP address, or HOST\\INSTANCE."
+            )
+        return value.strip()
 
 
 class InvestigationSummary(BaseModel):

@@ -50,6 +50,44 @@ def test_create_and_get(client: TestClient, auth_headers: dict[str, str]) -> Non
     assert body["server_port"] == 1433
 
 
+def test_create_accepts_a_named_instance(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    # The exact input a DBA types in SSMS (#37).
+    response = client.post(
+        "/investigations",
+        headers=auth_headers,
+        json={
+            "server_host": "ATADBETSP001\\OISSQL",
+            "server_port": 1433,
+            "auth_type": "sql",
+            "databases": None,
+            "lookback_hours": 4,
+        },
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["server_host"] == "ATADBETSP001\\OISSQL"
+
+
+def test_create_rejects_malformed_hosts(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    # Server-side guard: the frontend's check alone can be bypassed (#37).
+    for bad in ["HOST\\", "\\INST", "A\\B\\C", "host\\bad name", "not a host!"]:
+        response = client.post(
+            "/investigations",
+            headers=auth_headers,
+            json={
+                "server_host": bad,
+                "server_port": 1433,
+                "auth_type": "sql",
+                "databases": None,
+                "lookback_hours": 4,
+            },
+        )
+        assert response.status_code == 422, (bad, response.text)
+
+
 def test_list_includes_seeded_and_created(
     client: TestClient, auth_headers: dict[str, str]
 ) -> None:

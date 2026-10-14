@@ -58,10 +58,11 @@ const INITIAL: FormState = {
 const IPV4_RE =
   /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
 const LABEL_RE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/;
+// The `\INSTANCE` suffix: alnum-initial, then alnum / `_` / `-` (#37).
+const INSTANCE_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 
 /** True for a non-empty hostname (`sql01`, `sql01.acme.example`), IPv4, or IPv6. */
-export function isValidHost(value: string): boolean {
-  const host = value.trim();
+function isValidHostName(host: string): boolean {
   if (host.length === 0 || host.length > 253) return false;
   if (IPV4_RE.test(host)) return true;
   if (host.includes(":")) return /^[0-9a-fA-F:]+$/.test(host); // IPv6
@@ -69,6 +70,28 @@ export function isValidHost(value: string): boolean {
     .replace(/\.$/, "")
     .split(".")
     .every((label) => LABEL_RE.test(label));
+}
+
+/**
+ * True for a plain host, IP, or the DBA-style `HOST\INSTANCE` — the form
+ * they'd type in SSMS (#37). Exactly one backslash, both parts valid.
+ */
+export function isValidHost(value: string): boolean {
+  const host = value.trim();
+  if (host.length === 0) return false;
+  const slash = host.indexOf("\\");
+  if (slash === -1) return isValidHostName(host);
+  if (host.indexOf("\\", slash + 1) !== -1) return false;
+  const instance = host.slice(slash + 1);
+  return INSTANCE_RE.test(instance) && isValidHostName(host.slice(0, slash));
+}
+
+/**
+ * A backslash anywhere means "named instance": the port field is not part
+ * of that addressing mode (SQL Browser discovers the port, #37).
+ */
+export function hasNamedInstance(value: string): boolean {
+  return value.includes("\\");
 }
 
 /** `"db1, db2"` → `["db1", "db2"]`; blanks and whitespace are dropped. */
@@ -93,14 +116,18 @@ export function validate(state: FormState, password: string): FieldErrors {
     errors.serverHost = "Enter a valid hostname or IP address.";
   }
 
-  const port = Number(state.serverPort);
-  if (
-    state.serverPort.trim() === "" ||
-    !Number.isInteger(port) ||
-    port < 1 ||
-    port > 65535
-  ) {
-    errors.serverPort = "Port must be a whole number from 1 to 65535.";
+  // Named instance: the port is discovered via SQL Browser, so there is
+  // no port value to check (#37).
+  if (!hasNamedInstance(state.serverHost)) {
+    const port = Number(state.serverPort);
+    if (
+      state.serverPort.trim() === "" ||
+      !Number.isInteger(port) ||
+      port < 1 ||
+      port > 65535
+    ) {
+      errors.serverPort = "Port must be a whole number from 1 to 65535.";
+    }
   }
 
   if (state.scope === "databases" && parseDatabases(state.databases).length === 0) {
@@ -178,7 +205,11 @@ export function ConnectionScopeForm() {
     try {
       const created = await getServiceClient().createInvestigation({
         server_host: form.serverHost.trim(),
-        server_port: Number(form.serverPort),
+        // With an instance the port input is gone and the value unused
+        // (SQL Browser discovers it) — send the API default (#37).
+        server_port: hasNamedInstance(form.serverHost)
+          ? 1433
+          : Number(form.serverPort),
         auth_type: form.authType,
         databases:
           form.scope === "databases" ? parseDatabases(form.databases) : null,
@@ -228,24 +259,35 @@ export function ConnectionScopeForm() {
           </p>
         )}
 
-        <label htmlFor="server-port">
-          Port
-          <input
-            id="server-port"
-            type="number"
-            value={form.serverPort}
-            onChange={(e) => setField("serverPort", e.target.value)}
-            min={1}
-            max={65535}
-            aria-invalid={errors.serverPort ? true : undefined}
-            aria-describedby={errors.serverPort ? "server-port-error" : undefined}
-            required
-          />
-        </label>
-        {errors.serverPort && (
-          <p role="alert" id="server-port-error">
-            {errors.serverPort}
+        {hasNamedInstance(form.serverHost) ? (
+          // Named instance: no port of its own — SQL Browser resolves it,
+          // so the port input is replaced by an explanatory note (#37).
+          <p className="muted" id="server-port-note">
+            Named instance: the port is discovered automatically via SQL
+            Browser.
           </p>
+        ) : (
+          <>
+            <label htmlFor="server-port">
+              Port
+              <input
+                id="server-port"
+                type="number"
+                value={form.serverPort}
+                onChange={(e) => setField("serverPort", e.target.value)}
+                min={1}
+                max={65535}
+                aria-invalid={errors.serverPort ? true : undefined}
+                aria-describedby={errors.serverPort ? "server-port-error" : undefined}
+                required
+              />
+            </label>
+            {errors.serverPort && (
+              <p role="alert" id="server-port-error">
+                {errors.serverPort}
+              </p>
+            )}
+          </>
         )}
 
         <label htmlFor="auth-type">

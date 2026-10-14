@@ -14,6 +14,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { services } from "../services";
 import type { InvestigationSummary } from "../services/types";
+import { formatServerTarget } from "../lib/format";
 
 type State =
   | { status: "loading" }
@@ -70,7 +71,7 @@ export function InvestigationList() {
                     <span>
                       #{inv.id} —{" "}
                       <strong className="host">
-                        {inv.server_host}:{inv.server_port}
+                        {formatServerTarget(inv.server_host, inv.server_port)}
                       </strong>{" "}
                       <strong data-state={inv.status}>{inv.status}</strong>
                     </span>{" "}

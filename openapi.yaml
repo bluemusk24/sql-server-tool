@@ -518,7 +518,13 @@ components:
       type: object
       required: [server_host, auth_type, lookback_hours]
       properties:
-        server_host: { type: string, example: sql01.acme.example }
+        server_host:
+          type: string
+          description: >-
+            Hostname, FQDN, or IP — or a named instance as `HOST\INSTANCE`
+            (the port is then discovered via SQL Browser, so server_port is
+            unused for that addressing mode).
+          example: sql01.acme.example
         server_port: { type: integer, default: 1433, minimum: 1, maximum: 65535 }
         auth_type: { type: string, enum: [sql, ad] }
         databases:

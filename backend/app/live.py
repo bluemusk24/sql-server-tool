@@ -118,6 +118,27 @@ def driver_available() -> bool:
     return True
 
 
+def server_address(settings: ConnectionSettings) -> str:
+    """Value for the ODBC ``SERVER`` key.
+
+    A named instance (``HOST\\INSTANCE``) is passed without a port so the
+    driver can resolve it through the SQL Browser service; a plain host
+    keeps the explicit ``host,port`` it was given (#37). The two are
+    alternative addressing modes — a known port makes the instance name
+    redundant for TDS, so the API never mixes them.
+    """
+    if "\\" in settings.server_host:
+        return settings.server_host
+    return f"{settings.server_host},{settings.server_port}"
+
+
+def display_target(settings: ConnectionSettings) -> str:
+    """Human-readable target for error messages — never ``HOST\\INST:1433``."""
+    if "\\" in settings.server_host:
+        return settings.server_host
+    return f"{settings.server_host}:{settings.server_port}"
+
+
 def build_connection_string(settings: ConnectionSettings) -> str:
     """Connection string for ODBC Driver 18 — credentials deliberately absent.
 
@@ -127,7 +148,7 @@ def build_connection_string(settings: ConnectionSettings) -> str:
     """
     parts = [
         "DRIVER={ODBC Driver 18 for SQL Server}",
-        f"SERVER={settings.server_host},{settings.server_port}",
+        f"SERVER={server_address(settings)}",
         "DATABASE=master",
         f"Connection Timeout={settings.timeout_seconds}",
         "ApplicationIntent=ReadOnly",
@@ -162,7 +183,7 @@ def open_connection(settings: ConnectionSettings) -> _Connection:
         return pyodbc.connect(build_connection_string(settings), **kwargs)
     except Exception as exc:
         raise LiveUnavailableError(
-            f"could not connect to {settings.server_host}:{settings.server_port}: {exc}"
+            f"could not connect to {display_target(settings)}: {exc}"
         ) from exc
 
 
