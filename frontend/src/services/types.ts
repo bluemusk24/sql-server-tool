@@ -33,6 +33,8 @@ export interface AuthorizationStart {
 export interface HealthStatus {
   status: string;
   version: string;
+  /** Served commit (#38); null outside Render. */
+  commit?: string | null;
 }
 
 // ── Catalog ─────────────────────────────────────────────────────────

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
 
@@ -11,6 +12,29 @@ def test_health_is_unauthenticated(client: TestClient) -> None:
     body = response.json()
     assert body["status"] == "ok"
     assert body["version"]
+
+
+def test_health_reports_the_serving_commit(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("RENDER_GIT_COMMIT", "abc1234def")
+    body = client.get("/health").json()
+    assert body["commit"] == "abc1234def"
+    # The original fields still hold for existing consumers (#38).
+    assert body["status"] == "ok"
+    assert body["version"]
+
+
+def test_health_commit_is_null_when_the_runtime_supplies_none(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("RENDER_GIT_COMMIT", raising=False)
+    body = client.get("/health").json()
+    # The key is always present: CI distinguishes "old build without the
+    # field" (key missing → 200-only fallback) from "field unknown"
+    # (null → fallback) from "field set" (must match the pushed commit).
+    assert "commit" in body
+    assert body["commit"] is None
 
 
 def test_login_returns_bearer_token(client: TestClient) -> None:

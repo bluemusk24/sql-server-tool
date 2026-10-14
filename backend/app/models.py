@@ -54,6 +54,11 @@ class AuthorizationStart(BaseModel):
 class HealthStatus(BaseModel):
     status: str
     version: str
+    # Served commit (#38): sourced from RENDER_GIT_COMMIT on Render so
+    # the CI deploy gate can verify the *new* code is live, not merely
+    # that some instance answers 200. Null where the runtime doesn't
+    # supply it (local compose, plain uvicorn).
+    commit: str | None = None
 
 
 # ── Catalog ──────────────────────────────────────────────────────────

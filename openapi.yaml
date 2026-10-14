@@ -494,6 +494,14 @@ components:
       properties:
         status: { type: string, example: ok }
         version: { type: string, example: "0.1.0" }
+        commit:
+          type: string
+          nullable: true
+          description: >-
+            Git commit serving this response (`RENDER_GIT_COMMIT` on
+            Render); null when the runtime doesn't supply it. The CI
+            deploy gate polls until this matches the pushed commit (#38).
+          example: 76195eb
 
     CatalogEntry:
       type: object

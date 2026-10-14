@@ -92,7 +92,7 @@ jobs:
     needs: [backend, frontend, e2e]
     runs-on: ubuntu-latest
     steps:
-      - name: Trigger the Render deploy hook, then gate on /health
+      - name: Trigger the Render deploy hook, then gate on the serving commit
         env:
           RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
         run: |
@@ -103,21 +103,46 @@ jobs:
             exit 0
           fi
           curl --fail-with-body --max-time 60 -X POST "$RENDER_DEPLOY_HOOK"
-          # Poll the health endpoint (covers build + free-tier wake).
-          # --max-time bounds each attempt so a hanging origin can't
-          # stall the job for hours.
-          echo "Polling $RENDER_APP_URL/health ..."
+          # #38: HTTP 200 alone is not enough — the *previous* instance
+          # answers 200 while the new deploy sits queued. Poll until
+          # /health reports the commit we pushed (RENDER_GIT_COMMIT on
+          # Render). Fallbacks keep non-Render environments working:
+          #   - "commit" key absent  → serving a build without the field
+          #   - "commit" null        → runtime doesn't export it
+          expected="$GITHUB_SHA"
+          echo "Polling $RENDER_APP_URL/health for commit $expected ..."
           start=$SECONDS
           attempt=0
-          while [ $((SECONDS - start)) -lt 600 ]; do
+          serving=""
+          while [ $((SECONDS - start)) -lt 900 ]; do
             attempt=$((attempt + 1))
-            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "$RENDER_APP_URL/health" || true)
-            if [ "$code" = "200" ]; then
-              echo "healthy after ~$((SECONDS - start))s ($attempt attempts)"
-              exit 0
+            # --max-time bounds each probe: free-tier cold wake ~50s.
+            body=$(curl -fsS --max-time 90 "$RENDER_APP_URL/health" 2>/dev/null || true)
+            if [ -n "$body" ]; then
+              if ! printf '%s' "$body" | jq -e 'has("commit")' >/dev/null 2>&1; then
+                echo "attempt $attempt: no commit field (old build) — 200-only fallback"
+                echo "healthy after ~$((SECONDS - start))s ($attempt attempts)"
+                exit 0
+              fi
+              serving=$(printf '%s' "$body" | jq -r '.commit // empty')
+              if [ -z "$serving" ]; then
+                echo "attempt $attempt: commit unknown (RENDER_GIT_COMMIT unset) — 200-only fallback"
+                echo "healthy after ~$((SECONDS - start))s ($attempt attempts)"
+                exit 0
+              fi
+              # Match either direction: Render may report a short hash
+              # while GITHUB_SHA is the full one.
+              if [ "${expected#"$serving"}" != "$expected" ] \
+                 || [ "${serving#"$expected"}" != "$serving" ]; then
+                echo "serving expected commit $serving — healthy after ~$((SECONDS - start))s ($attempt attempts)"
+                exit 0
+              fi
+              echo "attempt $attempt: serving $serving — waiting for $expected"
+            else
+              echo "attempt $attempt: not answering — waiting"
             fi
-            echo "attempt $attempt: HTTP $code — waiting"
-            sleep 10
+            sleep 15
           done
-          echo "deploy did not become healthy within 10 minutes"
+          echo "deploy gate timed out after 15 minutes"
+          echo "serving ${serving:-<none>}, expected $expected"
           exit 1
