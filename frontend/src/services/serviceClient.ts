@@ -38,6 +38,7 @@ export interface ServiceClient {
   listInvestigations(): Promise<InvestigationSummary[]>;
   getInvestigation(id: number): Promise<InvestigationResponse>;
   createInvestigation(payload: CreateInvestigationRequest): Promise<InvestigationResponse>;
+  deleteInvestigation(id: number): Promise<void>;
 
   // Approvals
   getApprovals(investigationId: number): Promise<ApprovalResponse>;

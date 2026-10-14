@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import Depends
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app import db_models as orm
@@ -356,6 +356,25 @@ class DatabaseStore:
             row.status = status
             self.session.flush()
 
+    def delete_investigation(self, inv_id: int) -> bool:
+        """Remove an investigation and everything stored under it (#39).
+
+        The children reference the investigation by foreign key without a
+        cascade, so they go first — approvals, jobs, then the report — and
+        only then the investigation row itself, all in the session's
+        transaction. Returns False when there is nothing to delete.
+        """
+        row = self.session.get(orm.InvestigationRow, inv_id)
+        if row is None:
+            return False
+        for model in (orm.ApprovalDecisionRow, orm.JobRow, orm.ReportRow):
+            self.session.execute(
+                delete(model).where(model.investigation_id == inv_id)
+            )
+        self.session.delete(row)
+        self.session.flush()
+        return True
+
     # ── Approvals ───────────────────────────────────────────────────
     def get_approvals(self, inv_id: int) -> dict[str, ApprovalDecision] | None:
         if self.session.get(orm.InvestigationRow, inv_id) is None:
@@ -437,6 +456,16 @@ class DatabaseStore:
             row.error = error
         self.session.flush()
         return _job_from(row)
+
+    def investigation_has_active_job(self, inv_id: int) -> bool:
+        """True when a run for this investigation is still queued or live."""
+        rows = self.session.execute(
+            select(orm.JobRow).where(
+                orm.JobRow.investigation_id == inv_id,
+                orm.JobRow.status.in_(("queued", "running")),
+            )
+        ).scalars()
+        return rows.first() is not None
 
     # ── Reports ─────────────────────────────────────────────────────
     def get_report(self, inv_id: int) -> dict[str, Any] | None:

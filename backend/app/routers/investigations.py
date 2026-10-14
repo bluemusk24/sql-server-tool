@@ -142,6 +142,25 @@ def get_investigation(
     )
 
 
+@router.delete(
+    "/investigations/{inv_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_investigation(
+    inv_id: int,
+    store: DatabaseStore = Depends(get_store),
+    user: CurrentUser = Depends(get_current_user),
+) -> None:
+    _require_inv(store, inv_id)
+    if store.investigation_has_active_job(inv_id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A run is in progress for this investigation",
+        )
+    store.delete_investigation(inv_id)
+    logger.info("investigation %s deleted by %s", inv_id, user.actor)
+
+
 @router.get("/investigations/{inv_id}/approvals", response_model=ApprovalResponse)
 def get_approvals(
     inv_id: int,

@@ -8,6 +8,8 @@
  *   - completed → report
  * A "refresh" button re-fetches, which is how a second browser window
  * picks up investigations created elsewhere (there is no live push).
+ * Each row also carries a Delete (confirmed) that removes the
+ * investigation and its report from the queue (#39).
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -31,6 +33,8 @@ function nextLink(id: number, status: string): { to: string; label: string } {
 
 export function InvestigationList() {
   const [state, setState] = useState<State>({ status: "loading" });
+  // Deletion failures keep the list on screen, so they get their own slot.
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setState({ status: "loading" });
@@ -42,6 +46,28 @@ export function InvestigationList() {
         status: "error",
         message: error instanceof Error ? error.message : "could not load",
       });
+    }
+  }, []);
+
+  const onDelete = useCallback(async (inv: InvestigationSummary) => {
+    const target = formatServerTarget(inv.server_host, inv.server_port);
+    const confirmed = window.confirm(
+      `Delete investigation #${inv.id} (${target})? ` +
+        "Its report will be removed too.",
+    );
+    if (!confirmed) return;
+    setDeleteError(null);
+    try {
+      await services.deleteInvestigation(inv.id);
+      setState((prev) =>
+        prev.status === "ok"
+          ? { ...prev, items: prev.items.filter((x) => x.id !== inv.id) }
+          : prev,
+      );
+    } catch (error) {
+      setDeleteError(
+        error instanceof Error ? error.message : "could not delete",
+      );
     }
   }, []);
 
@@ -57,6 +83,7 @@ export function InvestigationList() {
       {state.status === "error" && (
         <p role="alert">{state.message}</p>
       )}
+      {deleteError && <p role="alert">{deleteError}</p>}
 
       {state.status === "ok" && (
         <>
@@ -75,7 +102,13 @@ export function InvestigationList() {
                       </strong>{" "}
                       <strong data-state={inv.status}>{inv.status}</strong>
                     </span>{" "}
-                    <Link to={link.to}>{link.label}</Link>
+                    <Link to={link.to}>{link.label}</Link>{" "}
+                    <button
+                      type="button"
+                      onClick={() => void onDelete(inv)}
+                    >
+                      Delete
+                    </button>
                   </li>
                 );
               })}

@@ -45,6 +45,8 @@ export const realServiceClient: ServiceClient = {
   getInvestigation: (id) => request<InvestigationResponse>(`/investigations/${id}`),
   createInvestigation: (payload) =>
     request<InvestigationResponse>("/investigations", { method: "POST", body: payload }),
+  deleteInvestigation: (id) =>
+    request<void>(`/investigations/${id}`, { method: "DELETE" }),
 
   // Approvals
   getApprovals: (id) => request<ApprovalResponse>(`/investigations/${id}/approvals`),

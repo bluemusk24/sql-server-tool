@@ -3,11 +3,11 @@
  * with its status and the right next-step link.
  */
 
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { InvestigationList } from "../components/InvestigationList";
-import { services } from "../services";
+import { ApiError, services } from "../services";
 import type { InvestigationSummary } from "../services/types";
 
 function summary(
@@ -78,5 +78,69 @@ describe("InvestigationList", () => {
     render(<InvestigationList />, { wrapper: MemoryRouter });
 
     expect(await screen.findByText("No investigations yet.")).toBeTruthy();
+  });
+
+  it("deletes a row after confirmation and keeps the rest (#39)", async () => {
+    vi.spyOn(services, "listInvestigations").mockResolvedValue([
+      summary({ id: 1 }),
+      summary({ id: 2, server_host: "sql-dr-02.corp.example" }),
+    ]);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const del = vi
+      .spyOn(services, "deleteInvestigation")
+      .mockResolvedValue(undefined);
+
+    render(<InvestigationList />, { wrapper: MemoryRouter });
+    await screen.findByText("sql-prod-01.corp.example:1433");
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Delete" })[0]);
+
+    expect(window.confirm).toHaveBeenCalledTimes(1);
+    expect(del).toHaveBeenCalledWith(1);
+    await waitFor(() =>
+      expect(screen.queryByText("sql-prod-01.corp.example:1433")).toBeNull(),
+    );
+    expect(await screen.findByText("sql-dr-02.corp.example:1433")).toBeTruthy();
+  });
+
+  it("does nothing when the confirmation is declined", async () => {
+    vi.spyOn(services, "listInvestigations").mockResolvedValue([
+      summary({ id: 1 }),
+    ]);
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    const del = vi
+      .spyOn(services, "deleteInvestigation")
+      .mockResolvedValue(undefined);
+
+    render(<InvestigationList />, { wrapper: MemoryRouter });
+    await screen.findByText("sql-prod-01.corp.example:1433");
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+
+    expect(del).not.toHaveBeenCalled();
+    expect(
+      await screen.findByText("sql-prod-01.corp.example:1433"),
+    ).toBeTruthy();
+  });
+
+  it("keeps the row and surfaces the error when deletion fails", async () => {
+    vi.spyOn(services, "listInvestigations").mockResolvedValue([
+      summary({ id: 1 }),
+    ]);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    vi.spyOn(services, "deleteInvestigation").mockRejectedValue(
+      new ApiError(409, "A run is in progress for this investigation"),
+    );
+
+    render(<InvestigationList />, { wrapper: MemoryRouter });
+    await screen.findByText("sql-prod-01.corp.example:1433");
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("A run is in progress");
+    expect(
+      screen.getByText("sql-prod-01.corp.example:1433"),
+    ).toBeTruthy();
   });
 });

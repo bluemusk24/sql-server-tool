@@ -169,6 +169,27 @@ describe("mockServiceClient", () => {
     await expect(client.getInvestigation(99999)).rejects.toThrow("no investigation");
   });
 
+  it("deletes an investigation and drops it from the list (#39)", async () => {
+    const created = await client.createInvestigation({
+      server_host: "sql-todelete.acme.example",
+      auth_type: "sql",
+      lookback_hours: 4,
+    });
+    const before = await client.listInvestigations();
+    expect(before.some((i) => i.id === created.id)).toBe(true);
+
+    await client.deleteInvestigation(created.id);
+
+    const after = await client.listInvestigations();
+    expect(after.some((i) => i.id === created.id)).toBe(false);
+  });
+
+  it("rejects deleting an unknown investigation", async () => {
+    await expect(client.deleteInvestigation(99999)).rejects.toThrow(
+      "no investigation",
+    );
+  });
+
   it("rejects when getting an unknown job", async () => {
     await expect(client.getJobStatus("job-does-not-exist")).rejects.toThrow("no job");
   });

@@ -161,6 +161,16 @@ export const mockServiceClient: ServiceClient = {
     return delay(record);
   },
 
+  async deleteInvestigation(id: number): Promise<void> {
+    if (!investigations.has(id)) throw new Error(`no investigation ${id}`);
+    investigations.delete(id);
+    approvals.delete(id);
+    for (const [jobId, job] of jobs) {
+      if (job.investigation_id === id) jobs.delete(jobId);
+    }
+    await delay(null);
+  },
+
   // Approvals
   async getApprovals(investigationId: number): Promise<ApprovalResponse> {
     const found = approvals.get(investigationId);

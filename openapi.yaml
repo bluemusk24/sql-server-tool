@@ -178,6 +178,26 @@ paths:
                 $ref: "#/components/schemas/InvestigationResponse"
         "404":
           description: Not found
+    delete:
+      tags: [investigations]
+      summary: Delete investigation
+      description: >-
+        Removes the investigation and everything stored under it (approvals,
+        jobs, report). Refused with 409 while its run is still active.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+        "409":
+          description: A run is in progress for this investigation
 
 # ── Approvals ────────────────────────────────────────────────────────
   /investigations/{id}/approvals:

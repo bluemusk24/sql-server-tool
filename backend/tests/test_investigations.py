@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import logging
 
+import pytest
 from fastapi.testclient import TestClient
 
-from app.store import CATALOG
+from app.store import CATALOG, DatabaseStore
 
 
 def _create(client: TestClient, headers: dict[str, str]) -> dict:
@@ -287,3 +288,75 @@ def test_decisions_locked_after_run(
         json={"decisions": {CATALOG[0].id: "rejected"}},
     )
     assert response.status_code == 409
+
+
+def test_delete_requires_auth(client: TestClient) -> None:
+    assert client.delete("/investigations/1").status_code == 401
+
+
+def test_delete_removes_the_investigation_and_its_report(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    created = _create(client, auth_headers)
+    inv_id = created["id"]
+
+    # Give it children to clean up: approvals, a job, and a report
+    # (a full demo run).
+    decisions = {entry.id: "approved" for entry in CATALOG}
+    client.post(
+        f"/investigations/{inv_id}/approvals",
+        headers=auth_headers,
+        json={"decisions": decisions},
+    )
+    run = client.post(f"/investigations/{inv_id}/run", headers=auth_headers)
+    assert run.status_code == 202, run.text
+    assert client.get(f"/reports/{inv_id}", headers=auth_headers).status_code == 200
+
+    deleted = client.delete(f"/investigations/{inv_id}", headers=auth_headers)
+    assert deleted.status_code == 204, deleted.text
+    assert deleted.text == ""
+
+    # Gone from every view: detail, approvals, and the queue listing.
+    assert (
+        client.get(f"/investigations/{inv_id}", headers=auth_headers).status_code
+        == 404
+    )
+    assert (
+        client.get(
+            f"/investigations/{inv_id}/approvals", headers=auth_headers
+        ).status_code
+        == 404
+    )
+    rows = client.get("/investigations", headers=auth_headers).json()
+    assert inv_id not in [row["id"] for row in rows]
+
+    # The report row went with it — this endpoint reads only the reports
+    # table, so a 404 here proves the child was cleaned up too.
+    assert client.get(f"/reports/{inv_id}", headers=auth_headers).status_code == 404
+
+
+def test_delete_unknown_investigation_is_404(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    assert client.delete("/investigations/9999", headers=auth_headers).status_code == 404
+
+
+def test_delete_refuses_while_a_run_is_active(
+    client: TestClient,
+    auth_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created = _create(client, auth_headers)
+    monkeypatch.setattr(
+        DatabaseStore,
+        "investigation_has_active_job",
+        lambda self, inv_id: True,
+    )
+    response = client.delete(f"/investigations/{created['id']}", headers=auth_headers)
+    assert response.status_code == 409
+
+    # The investigation survived the refused delete.
+    assert (
+        client.get(f"/investigations/{created['id']}", headers=auth_headers).status_code
+        == 200
+    )
