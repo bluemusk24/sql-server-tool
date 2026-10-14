@@ -1,0 +1,64 @@
+# SDIP — app + Postgres in one stack.
+#
+#   docker compose up --build
+#
+# The db service carries a healthcheck; the app waits for it to report
+# healthy (depends_on: service_healthy) before starting, so the backend
+# never races a Postgres that is still initializing — it finds a ready
+# database, creates the schema, and seeds the demo data on first boot.
+#
+# The Postgres port is intentionally NOT published to the host: the app
+# reaches it over the Compose network as `db:5432`. Use
+# `docker compose exec db psql -U sdip` to poke at it, or keep using
+# `make postgres` (which does publish :5432) when you want the host to
+# connect. Note the standalone `sdip` container from `make container`
+# also wants host port 8080 — remove it before starting this stack:
+# `docker rm -f sdip` (its SQLite data volume is untouched).
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: sdip
+      POSTGRES_PASSWORD: sdip
+      POSTGRES_DB: sdip
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sdip -d sdip"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8000"
+    environment:
+      # The backend waits for the db healthcheck, then bootstraps the
+      # schema and seeds demo data into the empty database.
+      SDIP_DATABASE_URL: postgresql+psycopg://sdip:sdip@db:5432/sdip
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      # python:slim ships no curl; urllib does the same job.
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    restart: unless-stopped
+
+volumes:
+  pgdata:

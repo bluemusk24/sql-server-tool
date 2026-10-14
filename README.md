@@ -59,6 +59,10 @@ by the FastAPI backend. To run the UI against its built-in mock instead (no
 backend needed), use `make mock` — see
 [Mock vs. real backend](#mock-vs-real-backend).
 
+Prefer containers? `docker compose up --build` starts the whole product —
+the API+SPA container plus a Postgres database it waits for — on
+<http://localhost:8080>; see [Compose: app + Postgres](#compose-app--postgres).
+
 With the backend running, the interactive API docs (Swagger UI) are served at
 <http://127.0.0.1:8000/docs>.
 
@@ -587,8 +591,8 @@ Or via make: `make image` (build) and `make container` (build + run).
   404s. API routes, `/docs`, and `/openapi.json` always win over the SPA.
 - Persistence: the default SQLite file lives inside the container. Attach a
   volume and point `SDIP_DATABASE_URL` at it (the `make container`
-  target does this with the `sdip-data` volume), or point it at
-  Postgres (#33) — the driver is already in the image.
+  target does this with the `sdip-data` volume), or use the Compose
+  stack below, which runs the app against Postgres.
 - Deep links and hard refreshes work on every screen, including the
   paths that collide with API routes (`/investigations`,
   `/investigations/new`, `/jobs/<id>`): browser page loads carry no bearer
@@ -596,6 +600,30 @@ Or via make: `make image` (build) and `make container` (build + run).
   their exact 401/JSON semantics — see `app/spa.py`.
 - On Render: New → Web Service → Docker, Root Directory left at the repo
   root, and this single service runs everything.
+
+### Compose: app + Postgres
+
+[`docker-compose.yaml`](docker-compose.yaml) runs the same single image
+**together with a Postgres database** — the production-shaped local stack:
+
+```bash
+docker compose up --build
+# → http://localhost:8080 serves the SPA + API, backed by Postgres
+```
+
+- The `db` service (Postgres 16) carries a healthcheck; the `app` service
+  waits for it to report **healthy** (`depends_on: condition:
+  service_healthy`) before starting, so the backend never races an
+  initializing Postgres — it finds a ready database, creates the schema,
+  and seeds the demo data on first boot.
+- Postgres data lives in the Compose-managed `pgdata` volume; the database
+  port is not published (the app reaches it as `db:5432` over the Compose
+  network). Inspect it with `docker compose exec db psql -U sdip`.
+- `docker compose down` stops the stack and keeps the data;
+  `docker compose down -v` also drops the volume (fresh reseed next time).
+- The standalone `make container` target also uses host port 8080 — remove
+  that container first (`docker rm -f sdip`; its `sdip-data` volume is
+  untouched) before `docker compose up`.
 
 ### Frontend on Vercel
 
