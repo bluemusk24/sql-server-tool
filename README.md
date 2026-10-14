@@ -675,9 +675,10 @@ CI/CD ([`.github/workflows/ci.yaml`](.github/workflows/ci.yaml)): every
 push runs backend + frontend tests **in parallel**, then builds the
 compose stack and runs the Playwright e2e suite against it, and — on
 `main` only — triggers the Render deploy and **waits for `/health` to
-return 200** before reporting success. To enable deploys, add the
-service's **Settings → Deploy hooks** URL as the `RENDER_DEPLOY_HOOK`
-repository secret; until then the deploy job no-ops with a message.
+return 200** before reporting success. The hook URL lives in the
+`RENDER_DEPLOY_HOOK` repository secret (currently configured: green
+merges to `main` redeploy the live instance automatically); without
+the secret the deploy job no-ops with a message.
 
 > The original pipeline brief targeted AWS with a GitHub OIDC role;
 > the owner swapped the destination to Render, where a deploy-hook
