@@ -92,23 +92,28 @@ jobs:
     needs: [backend, frontend, e2e]
     runs-on: ubuntu-latest
     steps:
-      - name: Trigger the Render deploy hook
+      - name: Trigger the Render deploy hook, then gate on /health
         env:
           RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
         run: |
+          # No hook → no deploy happened → nothing to health-gate.
           if [ -z "$RENDER_DEPLOY_HOOK" ]; then
             echo "RENDER_DEPLOY_HOOK secret is not set — skipping deploy."
             echo "Add it from the Render service's Settings → Deploy hooks."
             exit 0
           fi
-          curl --fail-with-body -X POST "$RENDER_DEPLOY_HOOK"
-      - name: Wait for the health endpoint (covers build + free-tier wake)
-        run: |
+          curl --fail-with-body --max-time 60 -X POST "$RENDER_DEPLOY_HOOK"
+          # Poll the health endpoint (covers build + free-tier wake).
+          # --max-time bounds each attempt so a hanging origin can't
+          # stall the job for hours.
           echo "Polling $RENDER_APP_URL/health ..."
-          for attempt in $(seq 1 60); do
-            code=$(curl -s -o /dev/null -w '%{http_code}' "$RENDER_APP_URL/health" || true)
+          start=$SECONDS
+          attempt=0
+          while [ $((SECONDS - start)) -lt 600 ]; do
+            attempt=$((attempt + 1))
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "$RENDER_APP_URL/health" || true)
             if [ "$code" = "200" ]; then
-              echo "healthy after ~$((attempt * 10))s"
+              echo "healthy after ~$((SECONDS - start))s ($attempt attempts)"
               exit 0
             fi
             echo "attempt $attempt: HTTP $code — waiting"
