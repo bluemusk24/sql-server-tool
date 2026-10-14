@@ -40,3 +40,7 @@ backend/*.db
 
 # Skipped test placeholders
 *.skip
+
+# Playwright artifacts from e2e runs
+e2e/test-results/
+e2e/playwright-report/
