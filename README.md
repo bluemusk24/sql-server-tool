@@ -546,6 +546,33 @@ you never need to `cd` first.
 
 ---
 
+## End-to-end tests
+
+[`e2e/`](e2e/) holds a Playwright suite that exercises the product's
+core two-session journey against the **docker-compose stack**: a DBA logs
+in and creates an investigation, an approver opens the shared approval
+link in a separate browser context (its own session), reviews and
+approves every generated query, starts the run — and the DBA sees the
+status flip to completed and the report render. It also checks that
+anonymous visitors are bounced to the login screen.
+
+```bash
+make e2e
+```
+
+That single command starts the stack (waiting for the app's healthcheck,
+which itself waits for Postgres), builds the `e2e` runner image, and runs
+the suite **on the compose network** (`E2E_BASE_URL=http://app:8000`) —
+no browsers or Node packages needed on the host.
+
+The runner is version-locked: `e2e/package.json` pins `@playwright/test`
+and `e2e/Dockerfile` pins the matching browser image — bump both
+together. The suite can also run against any deployment:
+
+```bash
+cd e2e && E2E_BASE_URL=https://your-app.onrender.com npx playwright test
+```
+
 ## Deployment
 
 The frontend deploys to **Vercel** (a static SPA built with Vite); the backend
@@ -628,6 +655,37 @@ docker compose up --build
   Desktop (WSL2 backend) has dropped the container's network attachment —
   the compose file is fine. Recreate it:
   `docker compose up -d --force-recreate app`.
+
+### Deploy to Render (blueprint)
+
+[`render.yaml`](render.yaml) describes the production shape: one web
+service (the single image — API serves the SPA) plus a free managed
+Postgres, wired together via `SDIP_DATABASE_URL`.
+
+1. Push the repository to GitHub (Render reads the blueprint from it).
+2. Render Dashboard → **New → Blueprint** → select the repository.
+   Render builds the root `Dockerfile`, provisions `sdip-db`, and
+   deploys the service.
+3. The app is live at **`https://sql-server.onrender.com`** — or the
+   name you choose in `render.yaml` if `sql-server` is taken (names are
+   global; the CI variable `RENDER_APP_URL` must match).
+
+CI/CD ([`.github/workflows/ci.yaml`](.github/workflows/ci.yaml)): every
+push runs backend + frontend tests **in parallel**, then builds the
+compose stack and runs the Playwright e2e suite against it, and — on
+`main` only — triggers the Render deploy and **waits for `/health` to
+return 200** before reporting success. To enable deploys, add the
+service's **Settings → Deploy hooks** URL as the `RENDER_DEPLOY_HOOK`
+repository secret; until then the deploy job no-ops with a message.
+
+> The original pipeline brief targeted AWS with a GitHub OIDC role;
+> the owner swapped the destination to Render, where a deploy-hook
+> POST replaces the cloud role.
+
+Free-plan notes: the service sleeps after inactivity (first visit waits
+~30-60s), and free Postgres instances recycle after 90 days — the demo
+data reseeds automatically. Point `E2E_BASE_URL` at the deployed URL to
+run the e2e journey against production too.
 
 ### Frontend on Vercel
 

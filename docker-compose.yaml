@@ -60,5 +60,18 @@ services:
       start_period: 20s
     restart: unless-stopped
 
+  e2e:
+    build:
+      context: .
+      dockerfile: e2e/Dockerfile
+    profiles: ["e2e"]
+    environment:
+      # The runner lives on the compose network, so the app is reached
+      # by service name — no host ports involved.
+      E2E_BASE_URL: http://app:8000
+    depends_on:
+      app:
+        condition: service_healthy
+
 volumes:
   pgdata:

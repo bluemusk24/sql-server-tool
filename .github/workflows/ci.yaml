@@ -1,0 +1,118 @@
+# CI/CD (#33): parallel test jobs → compose stack integration + e2e →
+# deploy to Render → validate the health endpoint.
+#
+# The original brief said "deploy to AWS using a GitHub OIDC role"; the
+# owner swapped the target to Render. Render deploys are triggered with
+# a per-service deploy hook (Settings → Deploy hooks), which is a plain
+# HTTPS POST — no cloud roles involved. Store the hook URL as the
+# RENDER_DEPLOY_HOOK repository secret; the deploy job no-ops with a
+# clear message while it is unset.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  # Public URL of the deployed service — keep in step with the `name`
+  # in render.yaml.
+  RENDER_APP_URL: https://sql-server.onrender.com
+
+jobs:
+  backend:
+    name: Backend (ruff + pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync
+        working-directory: backend
+      - name: Lint
+        run: uv run ruff check .
+        working-directory: backend
+      - name: Unit + API tests (SQLite; env-gated live tests skip)
+        run: uv run pytest
+        working-directory: backend
+
+  frontend:
+    name: Frontend (typecheck + vitest + build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+        working-directory: frontend
+      - run: npm run typecheck
+        working-directory: frontend
+      - run: npm test
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
+
+  e2e:
+    name: Compose stack + Playwright e2e
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and start the stack (app waits for healthy Postgres)
+        run: docker compose up -d --build --wait --wait-timeout 300
+      - name: Run the e2e journey against the stack
+        run: |
+          docker compose --profile e2e build e2e
+          docker compose --profile e2e run --rm e2e
+      - name: Stack logs on failure
+        if: failure()
+        run: docker compose logs > compose-logs.txt
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-failure
+          path: |
+            compose-logs.txt
+            e2e/playwright-report
+          if-no-files-found: ignore
+
+  deploy:
+    name: Deploy to Render + health gate
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [backend, frontend, e2e]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger the Render deploy hook
+        env:
+          RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$RENDER_DEPLOY_HOOK" ]; then
+            echo "RENDER_DEPLOY_HOOK secret is not set — skipping deploy."
+            echo "Add it from the Render service's Settings → Deploy hooks."
+            exit 0
+          fi
+          curl --fail-with-body -X POST "$RENDER_DEPLOY_HOOK"
+      - name: Wait for the health endpoint (covers build + free-tier wake)
+        run: |
+          echo "Polling $RENDER_APP_URL/health ..."
+          for attempt in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "$RENDER_APP_URL/health" || true)
+            if [ "$code" = "200" ]; then
+              echo "healthy after ~$((attempt * 10))s"
+              exit 0
+            fi
+            echo "attempt $attempt: HTTP $code — waiting"
+            sleep 10
+          done
+          echo "deploy did not become healthy within 10 minutes"
+          exit 1

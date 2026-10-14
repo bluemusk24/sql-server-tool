@@ -8,7 +8,7 @@
 .PHONY: help run mock backend frontend setup install test \
         backend-install backend-test backend-lint backend-format \
         frontend-install frontend-test frontend-typecheck frontend-build \
-        image container postgres postgres-down \
+        image container postgres postgres-down e2e \
         migrate migrate-new migrate-down token clean
 
 # ── Configuration ────────────────────────────────────────────────────
@@ -147,6 +147,14 @@ postgres: ## Start a local Postgres 16 container (sdip-db, data in sdip-pgdata)
 
 postgres-down: ## Remove the local Postgres container (keeps the data volume)
 	-docker rm -f $(PG_NAME) 2>/dev/null
+
+# ── End-to-end tests (Playwright against the compose stack) ──────────
+# Starts the stack if needed, then runs the e2e container on the compose
+# network (E2E_BASE_URL=http://app:8000) — no browser install required.
+e2e: ## Run the Playwright e2e suite against the docker-compose stack
+	docker compose up -d --build --wait --wait-timeout 300
+	docker compose --profile e2e build e2e
+	docker compose --profile e2e run --rm e2e
 
 # ── Database migrations (Alembic) ────────────────────────────────────
 # The app bootstraps tables itself on startup (create_all) and stamps the

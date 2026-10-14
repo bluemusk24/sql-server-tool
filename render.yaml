@@ -1,0 +1,36 @@
+# Render blueprint — the whole product as one web service + managed
+# Postgres (#33).
+#
+# Deploy: Render Dashboard → New → Blueprint → this repository. Render
+# reads this file, builds the root Dockerfile (single image: API serves
+# the SPA), provisions a free Postgres, and wires them together.
+#
+# The service name decides the public URL: https://<name>.onrender.com.
+# If `sql-server` is already taken on Render (names are global), rename
+# it here and update the CI variable RENDER_APP_URL to match.
+#
+# Free-plan notes:
+#   - the web service sleeps after inactivity; the first visit after a
+#     idle period waits ~30-60s while it wakes
+#   - free Postgres instances are recycled after 90 days; data is demo
+#     data and reseeds automatically when empty
+
+services:
+  - type: web
+    name: sql-server
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      # Render's Postgres connection string (a bare postgres:// URL) is
+      # pinned to the installed psycopg driver by the backend.
+      - key: SDIP_DATABASE_URL
+        fromDatabase:
+          name: sdip-db
+          property: connectionString
+
+databases:
+  - name: sdip-db
+    plan: free
+    databaseName: sdip
+    user: sdip
