@@ -39,7 +39,9 @@ jobs:
         run: uv run ruff check .
         working-directory: backend
       - name: Unit + API tests (SQLite; env-gated live tests skip)
-        run: uv run pytest
+        # -s: temporary diagnostic (catch the logger-disabling culprit);
+        # remove once test_backend_log_names_target_server root cause lands.
+        run: uv run pytest -s
         working-directory: backend
 
   frontend:

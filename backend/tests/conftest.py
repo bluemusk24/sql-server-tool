@@ -15,6 +15,37 @@ DBA = ("dba", "dba-password")
 # Each test gets its own isolated, empty SQLite database.
 TEST_DATABASE_URL = "sqlite:///:memory:"
 
+# CI-only bug hunt: pin WHEN sqldiag.investigations gets .disabled=True.
+# conftest imports after pytest plugin loading but before test-module
+# imports, so this snapshot splits "during pytest startup" from
+# "during collection of a test module".
+print(
+    "CONFTEST-IMPORT-SNAPSHOT disabled="
+    f"{logging.getLogger('sqldiag.investigations').disabled}",
+    flush=True,
+)
+
+# If the snapshot above is False, this tracer catches the exact stack
+# of whoever flips .disabled to True afterwards (data descriptor on the
+# class beats instance attributes).
+if not logging.getLogger("sqldiag.investigations").disabled:
+
+    def _get_disabled(self: logging.Logger) -> bool:
+        return self.__dict__.get("disabled", False)
+
+    def _set_disabled(self: logging.Logger, value: bool) -> None:
+        if value and not self.__dict__.get("disabled", False):
+            import traceback
+
+            print(
+                f"LOGGER-DISABLED-BY {self.name}:\n"
+                + "".join(traceback.format_stack()[-8:]),
+                flush=True,
+            )
+        self.__dict__["disabled"] = value
+
+    logging.Logger.disabled = property(_get_disabled, _set_disabled)  # type: ignore[assignment]
+
 
 @pytest.fixture(autouse=True)
 def _track_logger_disabled(request: pytest.FixtureRequest) -> None:
