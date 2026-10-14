@@ -342,6 +342,11 @@ def start_run(
         )
 
     job = store.create_job(inv_id)
+    # Commit the job row before the worker thread opens its own database
+    # session (#29): across a real connection pool (SQLite file, Postgres)
+    # the worker cannot see this request's uncommitted rows — the in-memory
+    # test database shares one connection, which hides the difference.
+    store.session.commit()
     logger.info(
         "run started for investigation %s on %s:%s (%s) by %s",
         inv_id,

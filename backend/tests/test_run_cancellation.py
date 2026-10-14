@@ -18,6 +18,7 @@ from app.live import (
     RunTimeout,
     run_collection,
 )
+from app.main import create_app
 from app.routers.investigations import _execute_run
 from app.store import CATALOG, DatabaseStore
 
@@ -316,3 +317,53 @@ def test_cancel_endpoint_still_reflects_the_run_state(
     canceled = client.post(f"/jobs/{job_id}/cancel", headers=auth_headers)
     assert canceled.status_code == 200
     assert canceled.json()["status"] == "canceled"
+
+
+def test_run_completes_against_a_file_database(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The worker thread's own session must see the job it was given.
+
+    The shared in-memory test database hides cross-connection visibility
+    bugs: with a file-backed SQLite (as in compose and on Render) the
+    worker opens a real second connection, and the run only starts if
+    the job row was committed before the worker was scheduled (#29).
+    """
+    monkeypatch.delenv("LIVE_DATABASE_URL", raising=False)
+    app = create_app(database_url=f"sqlite:///{tmp_path}/sdip.db")
+    with TestClient(app) as client:
+        headers = {
+            "Authorization": "Bearer "
+            + client.post(
+                "/auth/login",
+                json={"username": "dba", "password": "dba-password"},
+            ).json()["access_token"]
+        }
+        created = client.post(
+            "/investigations",
+            headers=headers,
+            json={
+                "server_host": "sql02.acme.example",
+                "server_port": 1433,
+                "auth_type": "sql",
+                "databases": None,
+                "lookback_hours": 8,
+            },
+        )
+        assert created.status_code == 201, created.text
+        inv_id = created.json()["id"]
+        client.post(
+            f"/investigations/{inv_id}/approvals",
+            headers=headers,
+            json={"decisions": {e.id: "approved" for e in CATALOG}},
+        )
+
+        started = client.post(f"/investigations/{inv_id}/run", headers=headers)
+        assert started.status_code == 202, started.text
+        job_id = started.json()["job_id"]
+
+        job = client.get(f"/jobs/{job_id}", headers=headers).json()
+        assert job["status"] == "succeeded"
+        assert (
+            client.get(f"/reports/{inv_id}", headers=headers).status_code == 200
+        )
