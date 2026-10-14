@@ -93,10 +93,6 @@ def test_backend_log_names_target_server(
     target_logger.addHandler(recorder)
     previous_level = target_logger.level
     target_logger.setLevel(logging.INFO)
-    # Canary: if this line is missing too, the logger itself was maimed
-    # by something earlier in the process; if present, the endpoint's
-    # own line is the mystery.
-    target_logger.info("canary before create")
     try:
         created = _create(client, auth_headers)
         inv_id = created["id"]
@@ -114,31 +110,6 @@ def test_backend_log_names_target_server(
         target_logger.setLevel(previous_level)
 
     messages = recorder.messages
-    if not any(m.startswith("investigation") for m in messages):
-        import sys
-
-        print("DEBUG captured:", messages, file=sys.stderr)
-        print(
-            "DEBUG logger:",
-            "level", target_logger.level,
-            "disabled", target_logger.disabled,
-            "propagate", target_logger.propagate,
-            "handlers", target_logger.handlers,
-            file=sys.stderr,
-        )
-        print(
-            "DEBUG manager.disable:", logging.root.manager.disable,
-            "root.level:", logging.root.level,
-            "root.handlers:", logging.root.handlers,
-            file=sys.stderr,
-        )
-        print(
-            "DEBUG same-object:",
-            logging.getLogger("sqldiag.investigations") is target_logger,
-            "investigations-modules:",
-            [m for m in sys.modules if m.endswith("routers.investigations")],
-            file=sys.stderr,
-        )
     created_line = next(m for m in messages if m.startswith("investigation"))
     assert "sql02.acme.example:1433" in created_line
     assert "dba" in created_line

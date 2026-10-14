@@ -26,7 +26,11 @@ from app.db_models import Base
 config = context.config
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers=False: this env.py also runs *inside* the app
+    # process (init_schema stamps a freshly bootstrapped database), and the
+    # stdlib default would otherwise mute every logger the host application
+    # already created (its own sqldiag.* loggers included).
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # Programmatic override (app stamping) > $DATABASE_URL > SQLite default.
 _url = config.attributes.get("sqlalchemy_url") or get_database_url()

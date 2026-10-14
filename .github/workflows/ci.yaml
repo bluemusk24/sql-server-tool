@@ -39,10 +39,7 @@ jobs:
         run: uv run ruff check .
         working-directory: backend
       - name: Unit + API tests (SQLite; env-gated live tests skip)
-        # -s + sitecustomize: temporary diagnostic (catch the logger-disabling
-        # culprit at interpreter startup); remove with backend/sitecustomize.py
-        # once test_backend_log_names_target_server root cause lands.
-        run: PYTHONPATH=. uv run pytest -s
+        run: uv run pytest
         working-directory: backend
 
   frontend:
