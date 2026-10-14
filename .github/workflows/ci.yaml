@@ -19,9 +19,9 @@ permissions:
   contents: read
 
 env:
-  # Public URL of the deployed service — keep in step with the `name`
-  # in render.yaml.
-  RENDER_APP_URL: https://sql-server.onrender.com
+  # Public URL of the deployed service. Render suffixed the name at
+  # creation (plain "sql-server" was taken on onrender.com).
+  RENDER_APP_URL: https://sql-server-n68y.onrender.com
 
 jobs:
   backend:

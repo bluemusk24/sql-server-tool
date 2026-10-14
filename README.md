@@ -666,9 +666,10 @@ Postgres, wired together via `SDIP_DATABASE_URL`.
 2. Render Dashboard → **New → Blueprint** → select the repository.
    Render builds the root `Dockerfile`, provisions `sdip-db`, and
    deploys the service.
-3. The app is live at **`https://sql-server.onrender.com`** — or the
-   name you choose in `render.yaml` if `sql-server` is taken (names are
-   global; the CI variable `RENDER_APP_URL` must match).
+3. The app is live at **`https://sql-server-n68y.onrender.com`** —
+   Render suffixes the service name when the plain one is taken
+   globally (names are global; the CI variable `RENDER_APP_URL` must
+   match the final URL shown on the service page).
 
 CI/CD ([`.github/workflows/ci.yaml`](.github/workflows/ci.yaml)): every
 push runs backend + frontend tests **in parallel**, then builds the
