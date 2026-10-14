@@ -482,11 +482,16 @@ class DatabaseStore:
 
         With `collection` (live run outcomes, #31) the report carries the
         real per-source statuses, coverage gaps, and evidence; without it
-        the seeded demo content keeps the dashboard usable offline.
+        a deterministic, clearly-labeled synthetic report (#26) keeps the
+        pipeline, dashboard, and PDF exercisable end to end.
         """
         report = build_demo_report(inv, organization)
         if collection is not None:
             report = apply_collection(report, collection)
+        else:
+            from app.synthetic import generate_synthetic_report
+
+            report = generate_synthetic_report(inv, organization)
         row = self.session.get(orm.ReportRow, inv.id)
         if row is None:
             self.session.add(

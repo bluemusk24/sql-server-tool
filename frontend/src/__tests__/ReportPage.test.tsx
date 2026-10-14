@@ -222,4 +222,21 @@ describe("ReportPage", () => {
       await screen.findByText(/no report for this investigation yet/i),
     ).toBeTruthy();
   });
+
+  it("labels a synthetic report so sample data is never mistaken (#26)", async () => {
+    vi.spyOn(services, "getReportPayload").mockResolvedValue({
+      ...FIXTURE,
+      synthetic: true,
+    });
+
+    renderReport();
+    const banner = await screen.findByTestId("synthetic-banner");
+    expect(banner.textContent).toContain("not collected from a real server");
+  });
+
+  it("shows no synthetic label on a real (or empty) report", async () => {
+    renderReport();
+    expect(await screen.findByText("Diagnostic report")).toBeTruthy();
+    expect(screen.queryByTestId("synthetic-banner")).toBeNull();
+  });
 });

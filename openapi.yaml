@@ -767,6 +767,14 @@ components:
           items:
             $ref: "#/components/schemas/RemediationStep"
         read_only_disclaimer: { type: string }
+        synthetic:
+          type: boolean
+          default: false
+          description: >-
+            True when the payload is deterministic sample data from the
+            synthetic pipeline (the no-credentials run path, #26) — the
+            UI labels such reports so sample data is never mistaken for
+            collected evidence.
 
     DataSourceReport:
       type: object

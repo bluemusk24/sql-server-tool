@@ -245,6 +245,10 @@ class ReportPayload(BaseModel):
     validation_checks: list[str]
     remediation: list[dict[str, Any]]
     read_only_disclaimer: str
+    # #26: True for the deterministic sample the no-credentials path
+    # produces — the UI labels such reports so sample data is never
+    # mistaken for collected evidence.
+    synthetic: bool = False
 
 
 # ── Orgs ─────────────────────────────────────────────────────────────

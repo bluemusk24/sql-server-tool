@@ -96,6 +96,12 @@ export function ReportPage() {
         Investigation #{r.investigation_id} · {r.organization}
       </p>
 
+      {r.synthetic && (
+        <p className="synthetic-banner" role="note" data-testid="synthetic-banner">
+          Synthetic sample data — not collected from a real server.
+        </p>
+      )}
+
       <section>
         <h2>Summary</h2>
         <dl>

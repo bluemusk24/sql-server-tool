@@ -247,6 +247,8 @@ export interface ReportPayload {
   validation_checks: string[];
   remediation: RemediationStep[];
   read_only_disclaimer: string;
+  /** Labeled sample data from the synthetic pipeline (#26). */
+  synthetic?: boolean;
 }
 
 // ── Orgs (#27) ─────────────────────────────────────────────────────

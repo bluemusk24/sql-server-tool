@@ -384,7 +384,7 @@ def test_sql_auth_without_a_username_is_rejected_before_any_connect(
     assert "username and password" in response.json()["detail"]
 
 
-def test_run_without_credentials_keeps_the_demo_report(
+def test_run_without_credentials_produces_the_synthetic_report(
     client: TestClient, auth_headers: dict
 ) -> None:
     created = client.post(
@@ -399,7 +399,9 @@ def test_run_without_credentials_keeps_the_demo_report(
     )
     assert response.status_code == 202, response.text
     report = client.get(f"/reports/{created['id']}", headers=auth_headers).json()
-    assert "demo" in report["rationale"]
+    # The no-credentials path runs the labeled synthetic pipeline (#26).
+    assert report["synthetic"] is True
+    assert "SYNTHETIC" in report["rationale"]
 
 
 # ── Real-server integration (skipped until a server exists) ──────────
