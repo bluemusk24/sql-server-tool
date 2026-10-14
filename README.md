@@ -112,19 +112,40 @@ This creates `backend/.venv` (Python 3.11) and installs `fastapi`, `httpx`,
 
 ### Database configuration
 
-The database is selected with one environment variable, `DATABASE_URL`
-(SQLAlchemy URL format):
+The database is selected with one environment variable —
+`SDIP_DATABASE_URL` (or plain `DATABASE_URL`; SQLAlchemy URL format):
 
 | Value | Database |
 | ----- | -------- |
 | `sqlite:///./sqlserver_tool.db` | SQLite file next to `backend/` (**default**, used when unset) |
 | `sqlite:////abs/path/data.db` | SQLite file at an absolute path |
-| `postgresql+psycopg://user:pass@host:5432/db` | Postgres (add a driver when you get there) |
+| `postgresql://user:pass@host:5432/db` | Postgres (any installed driver is auto-pinned; bare `postgresql://` works) |
 
 ```bash
 # Use a different database for a run
 cd backend
 DATABASE_URL="sqlite:////tmp/dev.db" uv run uvicorn app.main:app --reload --port 8000
+```
+
+#### Postgres locally
+
+SQLite is the zero-config default for development; for a production-like
+database, start Postgres in one command and point the backend at it:
+
+```bash
+make postgres                                          # Postgres 16 in a container
+export SDIP_DATABASE_URL=postgresql://sdip:sdip@localhost:5432/sdip
+make run                                               # backend + frontend as usual
+```
+
+On first boot the backend creates the schema and seeds the demo data into
+the empty database — no migrations to run by hand. `make postgres-down`
+removes the container; the `sdip-pgdata` volume keeps your data. The live
+integration tests use the same URL when set:
+
+```bash
+SDIP_TEST_DATABASE_URL=postgresql://sdip:sdip@localhost:5432/sdip \
+  uv run pytest tests/test_postgres_integration.py
 ```
 
 See [`backend/.env.example`](backend/.env.example). On startup the app creates

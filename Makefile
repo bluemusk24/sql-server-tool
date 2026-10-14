@@ -8,7 +8,7 @@
 .PHONY: help run mock backend frontend setup install test \
         backend-install backend-test backend-lint backend-format \
         frontend-install frontend-test frontend-typecheck frontend-build \
-        image container \
+        image container postgres postgres-down \
         migrate migrate-new migrate-down token clean
 
 # ── Configuration ────────────────────────────────────────────────────
@@ -119,6 +119,34 @@ container: image ## Build and run the sdip container on :8080 (Ctrl+C stops it)
 	  -v sdip-data:/data \
 	  -e SDIP_DATABASE_URL=sqlite:////data/sdip.db \
 	  --name sdip sdip:latest
+
+# ── Postgres (optional local database) ───────────────────────────────
+# SQLite stays the zero-config default; Postgres is one container away:
+#
+#   make postgres
+#   export SDIP_DATABASE_URL=postgresql://sdip:sdip@localhost:5432/sdip
+#   make run
+#
+# The backend creates the schema and seeds demo data on first boot, so
+# an empty database needs no setup. Point SDIP_TEST_DATABASE_URL at the
+# same URL to unskip the live Postgres integration tests.
+PG_NAME    := sdip-db
+PG_IMAGE   := postgres:16-alpine
+PG_VOLUME  := sdip-pgdata
+PG_URL     := postgresql://sdip:sdip@localhost:5432/sdip
+
+postgres: ## Start a local Postgres 16 container (sdip-db, data in sdip-pgdata)
+	-docker rm -f $(PG_NAME) 2>/dev/null
+	docker run -d --name $(PG_NAME) \
+	  -e POSTGRES_USER=sdip -e POSTGRES_PASSWORD=sdip -e POSTGRES_DB=sdip \
+	  -p 5432:5432 -v $(PG_VOLUME):/var/lib/postgresql/data \
+	  $(PG_IMAGE)
+	@echo "Postgres is starting. Run the backend against it with:"
+	@echo "  export SDIP_DATABASE_URL=$(PG_URL)"
+	@echo "  make run"
+
+postgres-down: ## Remove the local Postgres container (keeps the data volume)
+	-docker rm -f $(PG_NAME) 2>/dev/null
 
 # ── Database migrations (Alembic) ────────────────────────────────────
 # The app bootstraps tables itself on startup (create_all) and stamps the

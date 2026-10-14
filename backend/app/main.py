@@ -16,7 +16,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
-from app.db import get_database_url, init_schema, make_engine, make_session_factory
+from app.db import (
+    get_database_url,
+    init_schema,
+    make_engine,
+    make_session_factory,
+    normalize_database_url,
+)
 from app.routers import auth, health, investigations, jobs, orgs, reports
 from app.spa import mount_frontend
 from app.store import seed_database
@@ -52,7 +58,12 @@ def create_app(database_url: str | None = None) -> FastAPI:
     )
 
     # Database: URL comes from the argument, else $DATABASE_URL, else SQLite.
-    url = database_url if database_url is not None else get_database_url()
+    # Postgres URLs get pinned to the installed driver either way.
+    url = (
+        normalize_database_url(database_url)
+        if database_url is not None
+        else get_database_url()
+    )
     engine = make_engine(url)
     app.state.database_url = url
     app.state.engine = engine

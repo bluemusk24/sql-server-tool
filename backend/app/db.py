@@ -22,15 +22,33 @@ from sqlalchemy.pool import StaticPool
 DEFAULT_DATABASE_URL = "sqlite:///./sqlserver_tool.db"
 
 
+def normalize_database_url(url: str) -> str:
+    """Pin Postgres URLs to the psycopg 3 driver.
+
+    A bare ``postgresql://`` (or the legacy ``postgres://`` alias) makes
+    SQLAlchemy load the psycopg2 dialect, which is not installed; every
+    Postgres URL is rewritten to ``postgresql+psycopg://`` so
+    ``postgresql://user:pass@host:5432/db`` just works. SQLite URLs pass
+    through untouched.
+    """
+    if url.startswith("postgres://"):
+        return "postgresql+psycopg://" + url[len("postgres://") :]
+    if url.startswith("postgresql://"):
+        return "postgresql+psycopg://" + url[len("postgresql://") :]
+    return url
+
+
 def get_database_url() -> str:
     """Resolve the configured database URL.
 
     ``SDIP_DATABASE_URL`` is the product-prefixed name used by the
     container run command (``-e SDIP_DATABASE_URL=sqlite:////data/sdip.db``);
     plain ``DATABASE_URL`` remains supported for local shells and other
-    platforms. SQLite is the default when neither is set.
+    platforms. SQLite is the default when neither is set. Postgres URLs
+    are normalized to the installed driver (see
+    :func:`normalize_database_url`).
     """
-    return (
+    return normalize_database_url(
         os.getenv("SDIP_DATABASE_URL")
         or os.getenv("DATABASE_URL")
         or DEFAULT_DATABASE_URL
