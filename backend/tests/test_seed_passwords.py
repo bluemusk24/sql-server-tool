@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from app import db_models as orm
 from app.db_models import Base
 from app.security import verify_password
-from app.store import seed_database
+from app.store import apply_seed_overrides, seed_database
 
 
 def _seeded_passwords(session: Session) -> dict[str, tuple[str, str]]:
@@ -64,5 +64,52 @@ def test_seeding_still_noops_on_a_populated_database(monkeypatch) -> None:
     # A second boot (with different overrides) must not re-seed.
     monkeypatch.setenv("SEED_DBA_PASSWORD", "too-late")
     seed_database(session)
+
+    assert _seeded_passwords(session) == before
+
+
+def test_demo_logins_rotate_on_the_next_boot(monkeypatch) -> None:
+    # First boot raced ahead of the environment variables (#41): the
+    # database holds the published demo logins.
+    monkeypatch.delenv("SEED_DBA_PASSWORD", raising=False)
+    monkeypatch.delenv("SEED_ADMIN_PASSWORD", raising=False)
+    session = _fresh_session()
+    seed_database(session)
+
+    # The operator sets the overrides and the service restarts.
+    monkeypatch.setenv("SEED_DBA_PASSWORD", "private-dba")
+    monkeypatch.setenv("SEED_ADMIN_PASSWORD", "private-admin")
+    apply_seed_overrides(session)
+
+    stored = _seeded_passwords(session)
+    assert verify_password("private-dba", *stored["dba"])
+    assert verify_password("private-admin", *stored["admin"])
+    assert not verify_password("dba-password", *stored["dba"])
+    assert not verify_password("admin-password", *stored["admin"])
+
+
+def test_rotation_never_touches_custom_passwords(monkeypatch) -> None:
+    monkeypatch.setenv("SEED_DBA_PASSWORD", "first-choice")
+    session = _fresh_session()
+    seed_database(session)
+    apply_seed_overrides(session)
+
+    # A later, different override must not silently change the login.
+    monkeypatch.setenv("SEED_DBA_PASSWORD", "second-choice")
+    apply_seed_overrides(session)
+
+    stored = _seeded_passwords(session)
+    assert verify_password("first-choice", *stored["dba"])
+    assert not verify_password("second-choice", *stored["dba"])
+
+
+def test_rotation_without_overrides_is_a_noop(monkeypatch) -> None:
+    monkeypatch.delenv("SEED_DBA_PASSWORD", raising=False)
+    monkeypatch.delenv("SEED_ADMIN_PASSWORD", raising=False)
+
+    session = _fresh_session()
+    seed_database(session)
+    before = _seeded_passwords(session)
+    apply_seed_overrides(session)
 
     assert _seeded_passwords(session) == before

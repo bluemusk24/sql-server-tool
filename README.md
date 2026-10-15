@@ -683,9 +683,11 @@ separate URLs, separate logins.
    match the final URL shown on the service page). The **production**
    URL (`sql-server-prod-*.onrender.com`) appears on its service page.
 4. On `sql-server-prod`, set **Environment → SEED_DBA_PASSWORD** and
-   **SEED_ADMIN_PASSWORD** to private values before the first deploy —
-   production must not ship with the published demo logins. (Dev keeps
-   the demo defaults.)
+   **SEED_ADMIN_PASSWORD** to private values — production must not ship
+   with the published demo logins. Timing is safe either way: on the
+   next boot any seeded login still carrying its demo password is
+   rotated to the override automatically (dev keeps the demo
+   defaults).
 
 **Promotion (dev → production):** verify the change on dev, then
 Dashboard → `sql-server-prod` → **Manual Deploy → Deploy latest

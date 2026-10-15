@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 from app import db_models as orm
 from app.db import get_db
 from app.models import CatalogEntry
-from app.security import hash_password
+from app.security import hash_password, verify_password
 
 # ── Seed catalog (mirrors frontend/src/services/mockData.ts) ────────
 _SEED_CATALOG: list[dict[str, Any]] = [
@@ -740,6 +740,33 @@ def seed_database(session: Session) -> None:
     session.add(
         orm.ReportRow(investigation_id=inv.id, payload=build_demo_report(inv, "Acme Corp"))
     )
+
+
+def apply_seed_overrides(session: Session) -> None:
+    """Rotate seeded demo logins to their ``SEED_*_PASSWORD`` overrides (#41).
+
+    Runs on every boot and is idempotent: a login is updated only while
+    it still carries the published demo password. That way a production
+    copy whose first deploy raced ahead of its environment variables
+    still ends up with private credentials on the next restart, while
+    already-custom passwords are never touched again.
+    """
+    overrides = [
+        ("dba", "dba-password", os.getenv("SEED_DBA_PASSWORD")),
+        ("admin", "admin-password", os.getenv("SEED_ADMIN_PASSWORD")),
+    ]
+    for username, demo_password, override in overrides:
+        if not override or override == demo_password:
+            continue
+        row = session.execute(
+            select(orm.UserRow).where(orm.UserRow.username == username)
+        ).scalar_one_or_none()
+        if row is None:
+            continue
+        if verify_password(demo_password, row.password_salt, row.password_hash):
+            salt, digest = hash_password(override)
+            row.password_salt = salt
+            row.password_hash = digest
 
 
 def get_store(db: Session = Depends(get_db)) -> DatabaseStore:
