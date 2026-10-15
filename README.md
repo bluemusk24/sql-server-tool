@@ -803,7 +803,15 @@ rate(sdip_creations_failed_total[5m])
 
 They arrive wherever the OTLP endpoint points — the local stack
 (`make observability`) or a Grafana Cloud instance — with no further
-wiring. See `observability/README.md`.
+wiring.
+
+**Dashboard (#47):** the stack provisions **Application Metrics (#46)**
+(`http://localhost:3000/d/sdip-app-metrics`) — stats for active users,
+investigations created, reports generated, and creation failures, plus
+rate/trend panels — with **Environment** and **Deployed version**
+dropdowns (multi-select, *All* default) filtering every panel via the
+`deployment_environment` / `service_version` labels. See
+`observability/README.md`.
 
 Free-plan notes: services sleep after inactivity (first visit waits
 ~30-60s), the dev SQLite file resets on every deploy, and the free

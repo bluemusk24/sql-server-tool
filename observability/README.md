@@ -41,6 +41,12 @@ app --OTLP--> collector --traces--> Tempo   (:3200)
 
 ## Exploring
 
+- **Dashboard**: home → **Application Metrics (#46)**
+  (`/d/sdip-app-metrics`) — provisioned from
+  `grafana/dashboards/application-metrics.json`. The **Environment** and
+  **Deployed version** dropdowns filter every panel (multi-select, *All*
+  by default) through the `deployment_environment` / `service_version`
+  labels that the app attaches to every metric.
 - **Traces**: Grafana → Explore → Tempo → Search → service `sql-server`.
   Every request is a trace; the root span is the HTTP request, children
   are the SQL queries (`db.statement`).

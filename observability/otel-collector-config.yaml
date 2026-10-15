@@ -34,6 +34,12 @@ exporters:
       insecure: true
   prometheus:
     endpoint: 0.0.0.0:8889
+    # Put every resource attribute (deployment_environment,
+    # service_version, commit.sha, …) on the metrics themselves —
+    # the dashboard's environment/version filters match labels on the
+    # series, not the side-car target_info (#47).
+    resource_to_telemetry_conversion:
+      enabled: true
 
 service:
   extensions: [health_check]
