@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.security import hash_password, verify_password
@@ -37,6 +37,7 @@ class CurrentUser:
 
 
 def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
     store: DatabaseStore = Depends(get_store),
 ) -> CurrentUser:
@@ -54,6 +55,9 @@ def get_current_user(
             detail="Invalid or expired token",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    # Every authenticated request counts the user as active (#46);
+    # a no-op when telemetry is dormant.
+    request.app.state.metrics.touch_user(user.actor)
     return CurrentUser(
         username=user.username,
         organization=user.organization,

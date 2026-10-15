@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
-from opentelemetry import trace
+from opentelemetry.sdk.metrics.export import InMemoryMetricReader
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
     InMemorySpanExporter,
 )
@@ -79,7 +79,12 @@ def test_requests_produce_spans_carrying_the_required_attributes(
 
     app = create_app("sqlite:///:memory:")
     exporter = InMemorySpanExporter()
-    assert setup_telemetry(app, exporter=exporter) is True
+    # metric_reader: keep the metrics side in-memory too, so no real
+    # OTLP exporter thread tries to reach an endpoint during the test.
+    assert (
+        setup_telemetry(app, exporter=exporter, metric_reader=InMemoryMetricReader())
+        is True
+    )
 
     with TestClient(app) as client:
         assert client.get("/health").status_code == 200
@@ -90,7 +95,7 @@ def test_requests_produce_spans_carrying_the_required_attributes(
         )
         assert response.status_code == 401
 
-    trace.get_tracer_provider().force_flush()
+    app.state.otel_tracer_provider.force_flush()
     spans = exporter.get_finished_spans()
     # Exact match: ASGI send/receive children are named "GET /health http
     # send" etc. — only the root span is named exactly "GET /health".

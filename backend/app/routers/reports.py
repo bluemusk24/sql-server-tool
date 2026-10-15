@@ -6,7 +6,7 @@ specific ``/reports/{inv_id}.pdf`` path wins over the bare integer route.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import Response
 
 from app.auth import CurrentUser, get_current_user
@@ -37,13 +37,23 @@ def _report_lines(report: dict) -> list[str]:
 @router.get("/reports/{inv_id}.pdf")
 def download_report_pdf(
     inv_id: int,
+    request: Request,
     store: DatabaseStore = Depends(get_store),
     _: CurrentUser = Depends(get_current_user),
 ) -> Response:
-    report = store.get_report(inv_id)
-    if report is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-    pdf = render_pdf(f"Investigation {inv_id} Report", _report_lines(report))
+    try:
+        report = store.get_report(inv_id)
+        if report is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Not found"
+            )
+        pdf = render_pdf(f"Investigation {inv_id} Report", _report_lines(report))
+    except HTTPException:
+        raise
+    except Exception:
+        request.app.state.metrics.creation_failed("report")
+        raise
+    request.app.state.metrics.report_generated("pdf")
     return Response(
         content=pdf,
         media_type="application/pdf",
@@ -56,10 +66,16 @@ def download_report_pdf(
 @router.get("/reports/{inv_id}")
 def get_report(
     inv_id: int,
+    request: Request,
     store: DatabaseStore = Depends(get_store),
     _: CurrentUser = Depends(get_current_user),
 ) -> dict:
-    report = store.get_report(inv_id)
+    try:
+        report = store.get_report(inv_id)
+    except Exception:
+        request.app.state.metrics.creation_failed("report")
+        raise
     if report is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    request.app.state.metrics.report_generated("json")
     return report

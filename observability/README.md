@@ -46,6 +46,10 @@ app --OTLP--> collector --traces--> Tempo   (:3200)
   are the SQL queries (`db.statement`).
 - **Metrics**: Explore → Prometheus → e.g. `otelcol_receiver_accepted_spans`
   or `otelcol_exporter_sent_spans` (collector health), labelled by pipeline.
+  The app's own domain metrics (#46) land in the same place:
+  `sdip_investigations_created_total`, `sdip_users_active`,
+  `sdip_reports_generated_total`, `sdip_creations_failed_total` — all
+  carrying `deployment_environment` and `service_version`.
 - **Logs**: Explore → Loki → `{}` (nothing from the app yet — the backend
   doesn't ship logs over OTLP; adding the OTLP log exporter to the
   instrumentation is a natural next step).

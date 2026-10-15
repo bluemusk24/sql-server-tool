@@ -778,6 +778,33 @@ resulting traces in Grafana → Explore → Tempo → service `sql-server`.
 CI and Render never touch this stack — hosted backends (e.g. Grafana
 Cloud free tier) remain the production path. See `observability/README.md`.
 
+### Application metrics (#46)
+
+The same instrumentation exports **application metrics** — instrumented
+requests come with their own domain counters, each point labelled with
+`deployment.environment` and `service.version` automatically:
+
+| Metric | Meaning |
+| --- | --- |
+| `sdip.investigations.created` | Investigations created (`POST /investigations`), labelled by `user.actor` |
+| `sdip.users.active` | Distinct authenticated users seen in the last 5 minutes |
+| `sdip.reports.generated` | Report exports, labelled by `format` (pdf/json) |
+| `sdip.creations.failed` | Investigation/report creations that raised, labelled by `object.type` |
+
+Auto-instrumentation also emits the standard HTTP request metrics
+(`http.server.request.duration` → request rate and latency). Prometheus
+translates dots to underscores and appends `_total` to counters, e.g.:
+
+```promql
+rate(sdip_investigations_created_total[5m])
+sum by (deployment_environment) (sdip_users_active)
+rate(sdip_creations_failed_total[5m])
+```
+
+They arrive wherever the OTLP endpoint points — the local stack
+(`make observability`) or a Grafana Cloud instance — with no further
+wiring. See `observability/README.md`.
+
 Free-plan notes: services sleep after inactivity (first visit waits
 ~30-60s), the dev SQLite file resets on every deploy, and the free
 production Postgres is recycled periodically (Render currently: ~30

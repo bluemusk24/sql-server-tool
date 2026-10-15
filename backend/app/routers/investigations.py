@@ -106,17 +106,23 @@ def list_investigations(
     status_code=status.HTTP_201_CREATED,
 )
 def create_investigation(
+    request: Request,
     payload: CreateInvestigationRequest,
     store: DatabaseStore = Depends(get_store),
     user: CurrentUser = Depends(get_current_user),
 ) -> InvestigationResponse:
-    inv = store.create_investigation(
-        server_host=payload.server_host,
-        server_port=payload.server_port,
-        auth_type=payload.auth_type.value,
-        databases=payload.databases,
-        lookback_hours=payload.lookback_hours,
-    )
+    try:
+        inv = store.create_investigation(
+            server_host=payload.server_host,
+            server_port=payload.server_port,
+            auth_type=payload.auth_type.value,
+            databases=payload.databases,
+            lookback_hours=payload.lookback_hours,
+        )
+    except Exception:
+        request.app.state.metrics.creation_failed("investigation")
+        raise
+    request.app.state.metrics.investigation_created(user.actor)
     logger.info(
         "investigation %s opened for %s:%s (auth=%s, lookback=%sh, scope=%s) by %s",
         inv.id,
