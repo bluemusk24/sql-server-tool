@@ -9,7 +9,6 @@ import { request } from "./http";
 import { setToken, clearToken } from "./token";
 import type {
   ApprovalResponse,
-  AuthorizationStart,
   HealthStatus,
   InvestigationResponse,
   InvestigationSummary,
@@ -35,7 +34,6 @@ export const realServiceClient: ServiceClient = {
   },
   logout: () => clearToken(),
   getSession: () => request<Session>("/auth/session"),
-  startAuthorization: () => request<AuthorizationStart>("/auth/authorize"),
 
   // Health
   getHealth: () => request<HealthStatus>("/health"),

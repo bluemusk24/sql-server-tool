@@ -9,7 +9,6 @@
 import type {
   ApprovalRequest,
   ApprovalResponse,
-  AuthorizationStart,
   CreateInvestigationRequest,
   CreateOrganizationRequest,
   Credentials,
@@ -29,7 +28,6 @@ export interface ServiceClient {
   login(credentials: LoginRequest): Promise<Session>;
   logout(): void;
   getSession(): Promise<Session>;
-  startAuthorization(): Promise<AuthorizationStart>;
 
   // Health
   getHealth(): Promise<HealthStatus>;

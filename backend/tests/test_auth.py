@@ -80,7 +80,11 @@ def test_session_401_with_bad_token(client: TestClient) -> None:
     assert response.status_code == 401
 
 
-def test_authorize_returns_url(client: TestClient) -> None:
+def test_authorize_is_unavailable_when_sso_is_not_configured(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("OIDC_ISSUER", raising=False)
+    monkeypatch.delenv("OIDC_CLIENT_ID", raising=False)
     response = client.get("/auth/authorize")
-    assert response.status_code == 200
-    assert response.json()["authorize_url"]
+    assert response.status_code == 503
+    assert "not configured" in response.json()["detail"]

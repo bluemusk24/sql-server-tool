@@ -11,7 +11,6 @@ import { ApiError } from "./http";
 import type {
   ApprovalRequest,
   ApprovalResponse,
-  AuthorizationStart,
   CreateInvestigationRequest,
   Credentials,
   CreateOrganizationRequest,
@@ -102,9 +101,6 @@ export const mockServiceClient: ServiceClient = {
   async getSession(): Promise<Session> {
     if (!currentSession) throw new ApiError(401, "Not authenticated");
     return delay(currentSession);
-  },
-  async startAuthorization(): Promise<AuthorizationStart> {
-    return delay({ authorize_url: "https://idp.acme.example/authorize" });
   },
 
   // Health

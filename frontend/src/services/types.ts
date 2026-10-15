@@ -25,10 +25,6 @@ export interface TokenResponse {
   token_type: string;
 }
 
-export interface AuthorizationStart {
-  authorize_url: string;
-}
-
 // ── Health ──────────────────────────────────────────────────────────
 export interface HealthStatus {
   status: string;

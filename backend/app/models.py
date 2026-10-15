@@ -46,10 +46,6 @@ class Session(BaseModel):
     actor: str
 
 
-class AuthorizationStart(BaseModel):
-    authorize_url: str
-
-
 # ── Health ───────────────────────────────────────────────────────────
 class HealthStatus(BaseModel):
     status: str

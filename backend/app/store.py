@@ -284,6 +284,31 @@ class DatabaseStore:
         self.session.flush()
         return token
 
+    def upsert_sso_user(self, username: str, organization: str, actor: str) -> None:
+        """Create or refresh the local user behind an OIDC login (#30).
+
+        SSO users get an unusable random password: the schema's columns
+        are NOT NULL, and no human ever knows the value, so such a user
+        can only ever authenticate through the issuer. Existing rows keep
+        their credentials; the organization and actor follow the latest
+        token.
+        """
+        row = self.session.get(orm.UserRow, username)
+        if row is None:
+            self.session.add(
+                orm.UserRow(
+                    username=username,
+                    organization=organization,
+                    actor=actor,
+                    password_salt=secrets.token_hex(32),
+                    password_hash=secrets.token_hex(32),
+                )
+            )
+        else:
+            row.organization = organization
+            row.actor = actor
+        self.session.flush()
+
     # ── Organizations ───────────────────────────────────────────────
     def list_organizations(self) -> list[dict[str, Any]]:
         rows = self.session.execute(
@@ -303,6 +328,20 @@ class DatabaseStore:
             return False
         self.session.delete(row)
         return True
+
+    def get_organization_by_issuer(self, issuer: str) -> dict[str, Any] | None:
+        """Resolve an OIDC caller's organization by its issuer (#30).
+
+        Trailing slashes are insignificant in issuer URLs, so both sides
+        are normalized before comparison.
+        """
+        wanted = issuer.rstrip("/")
+        for row in self.session.execute(
+            select(orm.OrganizationRow).order_by(orm.OrganizationRow.id)
+        ).scalars():
+            if row.issuer.rstrip("/") == wanted:
+                return {"id": row.id, "name": row.name, "issuer": row.issuer}
+        return None
 
     # ── Investigations ──────────────────────────────────────────────
     def list_investigations(self) -> list[dict[str, Any]]:

@@ -15,7 +15,6 @@ import { mockServiceClient } from "./mockService";
 export type {
   ApprovalRequest,
   ApprovalResponse,
-  AuthorizationStart,
   AreaFindings,
   AreaSeverity,
   CatalogEntry,

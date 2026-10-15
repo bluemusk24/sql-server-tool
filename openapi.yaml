@@ -87,16 +87,53 @@ paths:
       tags: [auth]
       summary: Start OIDC authorization
       description: |
-        Returns the IdP authorize URL. The frontend redirects the browser
-        there to complete the SSO flow.
+        Redirects the browser (302) to the organization issuer's
+        authorization endpoint with a CSRF `state` value, which is also
+        set as a short-lived HttpOnly cookie. Configure the issuer with
+        `OIDC_ISSUER`/`OIDC_CLIENT_ID`/`OIDC_CLIENT_SECRET`; 503 when
+        SSO is not configured (#30).
       security: []
       responses:
-        "200":
-          description: Authorize URL
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/AuthorizationStart"
+        "302":
+          description: Redirect to the issuer's authorization endpoint
+        "503":
+          description: SSO is not configured, or the issuer is unreachable
+
+  /auth/callback:
+    get:
+      tags: [auth]
+      summary: Finish the OIDC authorization-code flow
+      description: |
+        Exchanges the `code` for tokens, validates the `id_token`
+        (signature against the issuer JWKS, expiry, issuer, audience),
+        resolves the caller's organization by the verified token issuer
+        (provisioned up front by an admin via /orgs — unknown issuers
+        are refused with 403, never auto-provisioned), refreshes the
+        local user, and redirects (302) to
+        `<FRONTEND_URL>/auth/callback?token=<session token>` (#30).
+      security: []
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema: { type: string }
+        - name: state
+          in: query
+          required: true
+          schema: { type: string }
+        - name: error
+          in: query
+          description: Error relayed by the issuer instead of a code.
+          schema: { type: string }
+      responses:
+        "302":
+          description: Redirect to the SPA carrying the session token
+        "400":
+          description: Missing/mismatched state, issuer error, or rejected id_token
+        "403":
+          description: The token issuer maps to no provisioned organization
+        "503":
+          description: SSO is not configured, or the issuer is unreachable
 
 # ── Health ───────────────────────────────────────────────────────────
   /health:
@@ -466,9 +503,10 @@ components:
       scheme: bearer
       bearerFormat: opaque
       description: |
-        Bearer token obtained from `POST /auth/login`. Send it as
+        Bearer token obtained from `POST /auth/login` (or handed to the
+        SPA by the OIDC callback, #30). Send it as
         `Authorization: Bearer <token>`. All endpoints except /health,
-        /auth/login, and /auth/authorize require it.
+        /auth/login, /auth/authorize, and /auth/callback require it.
 
   schemas:
     LoginRequest:
@@ -491,12 +529,6 @@ components:
       properties:
         organization: { type: string }
         actor: { type: string }
-
-    AuthorizationStart:
-      type: object
-      required: [authorize_url]
-      properties:
-        authorize_url: { type: string, format: uri }
 
     HealthStatus:
       type: object
