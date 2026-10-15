@@ -1,0 +1,136 @@
+# Manual promotion, dev → production (#41).
+#
+# Dev deploys itself on every green push to main (see ci.yaml). This
+# workflow promotes whatever dev is running — the tip of main — to the
+# production service: it first verifies dev is serving the selected
+# commit, then fires the production service's Render deploy hook, and
+# finally gates on production's /health reporting that same commit.
+#
+# One-time setup (repository settings):
+#   secret  RENDER_PROD_DEPLOY_HOOK  — production service's deploy hook
+#                                      (Render → sql-server-prod →
+#                                      Settings → Deploy hooks → copy)
+#   variable RENDER_PROD_APP_URL     — production URL, e.g.
+#                                      https://sql-server-prod-xxxx.onrender.com
+#
+# Run: GitHub → Actions → "Promote dev to production" → Run workflow
+# (branch: main). Dashboard fallback: sql-server-prod → Manual Deploy →
+# Deploy latest commit.
+
+name: Promote dev to production
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Dev's public URL — keep in sync with ci.yaml's RENDER_APP_URL.
+  RENDER_APP_URL: https://sql-server-n68y.onrender.com
+  RENDER_PROD_APP_URL: ${{ vars.RENDER_PROD_APP_URL }}
+
+jobs:
+  promote:
+    name: Promote main to production + health gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check prerequisites
+        env:
+          RENDER_PROD_DEPLOY_HOOK: ${{ secrets.RENDER_PROD_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$RENDER_PROD_DEPLOY_HOOK" ]; then
+            echo "::error::RENDER_PROD_DEPLOY_HOOK secret is not set."
+            echo "Render → sql-server-prod → Settings → Deploy hooks → copy the URL"
+            echo "into GitHub → Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          if [ -z "$RENDER_PROD_APP_URL" ]; then
+            echo "::error::RENDER_PROD_APP_URL variable is not set."
+            echo "Add it under GitHub → Settings → Secrets and variables → Actions → Variables."
+            exit 1
+          fi
+          echo "Promoting to $RENDER_PROD_APP_URL"
+
+      # "Take whatever development has": only promote a commit dev is
+      # actually serving. If the CI deploy for this commit is still in
+      # flight, this waits up to 10 minutes for it to land.
+      - name: Verify dev is serving this commit
+        run: |
+          expected="$GITHUB_SHA"
+          echo "Checking $RENDER_APP_URL/health serves $expected ..."
+          start=$SECONDS
+          while [ $((SECONDS - start)) -lt 600 ]; do
+            # --max-time bounds each probe: free-tier cold wake ~50s.
+            body=$(curl -fsS --max-time 90 "$RENDER_APP_URL/health" 2>/dev/null || true)
+            if [ -n "$body" ]; then
+              if ! printf '%s' "$body" | jq -e 'has("commit")' >/dev/null 2>&1; then
+                echo "dev build predates the commit field — promoting tip of main anyway"
+                exit 0
+              fi
+              serving=$(printf '%s' "$body" | jq -r '.commit // empty')
+              if [ -z "$serving" ]; then
+                echo "dev commit unknown (RENDER_GIT_COMMIT unset) — promoting tip of main anyway"
+                exit 0
+              fi
+              # Match either direction: Render may report a short hash
+              # while GITHUB_SHA is the full one.
+              if [ "${expected#"$serving"}" != "$expected" ] \
+                 || [ "${serving#"$expected"}" != "$serving" ]; then
+                echo "dev is serving $serving — that is the version to promote"
+                exit 0
+              fi
+              echo "dev serving $serving, waiting for $expected (its deploy may still be running)"
+            else
+              echo "dev not answering — waiting (free tier cold wake ~50s)"
+            fi
+            sleep 15
+          done
+          echo "::error::dev never served $expected within 10 minutes."
+          echo "Wait for the CI run on this commit to go green, then re-run this workflow."
+          exit 1
+
+      - name: Trigger the production deploy, then gate on the serving commit
+        env:
+          RENDER_PROD_DEPLOY_HOOK: ${{ secrets.RENDER_PROD_DEPLOY_HOOK }}
+        run: |
+          echo "Firing the production deploy hook ..."
+          curl --fail-with-body --max-time 60 -X POST "$RENDER_PROD_DEPLOY_HOOK"
+          # Same gate as ci.yaml's dev deploy (#38): HTTP 200 alone is
+          # not enough — the *previous* production instance answers 200
+          # while the new deploy sits queued. Poll until /health
+          # reports the promoted commit (RENDER_GIT_COMMIT on Render).
+          expected="$GITHUB_SHA"
+          echo "Polling $RENDER_PROD_APP_URL/health for commit $expected ..."
+          start=$SECONDS
+          attempt=0
+          serving=""
+          while [ $((SECONDS - start)) -lt 900 ]; do
+            attempt=$((attempt + 1))
+            body=$(curl -fsS --max-time 90 "$RENDER_PROD_APP_URL/health" 2>/dev/null || true)
+            if [ -n "$body" ]; then
+              if ! printf '%s' "$body" | jq -e 'has("commit")' >/dev/null 2>&1; then
+                echo "attempt $attempt: no commit field (old build) — 200-only fallback"
+                echo "healthy after ~$((SECONDS - start))s ($attempt attempts)"
+                exit 0
+              fi
+              serving=$(printf '%s' "$body" | jq -r '.commit // empty')
+              if [ -z "$serving" ]; then
+                echo "attempt $attempt: commit unknown (RENDER_GIT_COMMIT unset) — 200-only fallback"
+                echo "healthy after ~$((SECONDS - start))s ($attempt attempts)"
+                exit 0
+              fi
+              if [ "${expected#"$serving"}" != "$expected" ] \
+                 || [ "${serving#"$expected"}" != "$serving" ]; then
+                echo "production serves $serving — promoted in ~$((SECONDS - start))s ($attempt attempts)"
+                exit 0
+              fi
+              echo "attempt $attempt: production serving $serving — waiting for $expected"
+            else
+              echo "attempt $attempt: production not answering — waiting"
+            fi
+            sleep 15
+          done
+          echo "::error::production deploy gate timed out after 15 minutes"
+          echo "serving ${serving:-<none>}, expected $expected"
+          exit 1

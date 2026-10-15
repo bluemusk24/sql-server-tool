@@ -1,31 +1,37 @@
-# Render blueprint — two independent environments from one repository
-# (#41):
+# Render blueprint — two independent environments, both on the $0
+# free tier (#41):
 #
-#   dev          sql-server      + sdip-db        auto-deploys from main
-#   production   sql-server-prod + sdip-db-prod   manual deploys only
+#   dev          sql-server      → SQLite in the container, auto-deploys from main
+#   production   sql-server-prod → sdip-db (the workspace's ONE free Postgres)
 #
-# Each environment is a separate web service with its own managed
-# Postgres and its own URL; nothing is shared. Deploy: Render Dashboard
-# → New → Blueprint → this repository. Render reads this file, builds
-# the root Dockerfile (single image: API serves the SPA), provisions the
-# databases, and wires each service to its own connection string.
+# Render allows only one free Postgres per workspace, so the durable
+# database belongs to production, where data continuity matters; dev's
+# state is ephemeral by design (a fresh deploy resets it to reseeded
+# demo data).
 #
-# Promoting dev → production: once a deploy of `main` is verified on
-# dev, Dashboard → sql-server-prod → Manual Deploy → Deploy latest
-# commit. Production never advances on push.
+# Deployment:
+#   dev          automatic — every green push to main (CI deploy hook)
+#   production   manual — GitHub → Actions → "Promote dev to production"
+#                (dashboard fallback: sql-server-prod → Manual Deploy →
+#                Deploy latest commit)
+#
+# Production hardening: set SEED_DBA_PASSWORD / SEED_ADMIN_PASSWORD on
+# sql-server-prod so the shared URL never uses the published demo
+# logins; the app rotates any login still on its demo password to the
+# override on the next boot (#41).
 #
 # The service name decides the public URL: https://<name>.onrender.com.
 # The dev name must stay `sql-server` — renaming it changes the shared
 # URL and breaks the CI deploy gate (RENDER_APP_URL).
 #
-# Cost notes:
-#   - both web services are free (they sleep after inactivity; the first
-#     visit after an idle period waits ~30-60s while they wake)
-#   - Render allows only ONE free Postgres per workspace, so the
-#     production database uses the paid Starter plan (~$7/month, card on
-#     file required); dev keeps the free database
-#   - free Postgres instances expire periodically (Render currently: 30
-#     days); the app reseeds demo data whenever its database is empty
+# Free-plan notes:
+#   - both services sleep after inactivity; the first visit after an
+#     idle period waits ~30-60s while they wake
+#   - free Postgres instances are recycled periodically (Render
+#     currently: ~30 days); the app reseeds demo data whenever the
+#     database is empty — export reports as PDFs to keep records
+#   - the dev SQLite file lives on the container's ephemeral disk
+#     (/data) and resets on every deploy — intended for a dev box
 
 services:
   # ── dev ────────────────────────────────────────────────────────────
@@ -35,16 +41,15 @@ services:
     plan: free
     healthCheckPath: /health
     envVars:
-      # Render's Postgres connection string (a bare postgres:// URL) is
-      # pinned to the installed psycopg driver by the backend.
+      # SQLite in the container's writable, ephemeral /data directory.
+      # The image's default (relative ./sqlserver_tool.db) would also
+      # work — the path is made explicit here.
       - key: SDIP_DATABASE_URL
-        fromDatabase:
-          name: sdip-db
-          property: connectionString
+        value: sqlite:////data/sdip.db
 
   # ── production ─────────────────────────────────────────────────────
-  # Same image, independent database, no auto-deploy: promotion is a
-  # deliberate click (Manual Deploy in the dashboard).
+  # Same image, its own Postgres, no auto-deploy: promotion is a
+  # deliberate action (the manual promote workflow, #41).
   - type: web
     name: sql-server-prod
     runtime: docker
@@ -54,26 +59,20 @@ services:
     envVars:
       - key: SDIP_DATABASE_URL
         fromDatabase:
-          name: sdip-db-prod
+          name: sdip-db
           property: connectionString
       # Production must not use the published demo logins (#41): set
-      # both in the dashboard (Environment tab → External Secrets or
-      # plain entry). They are marked sync:false so the values live
-      # only in the dashboard, never in this repository.
+      # both in the dashboard (Environment tab). They are marked
+      # sync:false so the values live only in the dashboard, never in
+      # this repository.
       - key: SEED_DBA_PASSWORD
         sync: false
       - key: SEED_ADMIN_PASSWORD
         sync: false
 
 databases:
-  # ── dev ────────────────────────────────────────────────────────────
+  # The workspace's single free Postgres belongs to production (#41).
   - name: sdip-db
     plan: free
-    databaseName: sdip
-    user: sdip
-
-  # ── production ─────────────────────────────────────────────────────
-  - name: sdip-db-prod
-    plan: starter
     databaseName: sdip
     user: sdip

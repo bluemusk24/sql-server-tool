@@ -659,24 +659,26 @@ docker compose up --build
 ### Deploy to Render (blueprint)
 
 [`render.yaml`](render.yaml) describes **two independent environments**
-(#41), each one web service (the single image — API serves the SPA)
-with its own managed Postgres, wired via `SDIP_DATABASE_URL`:
+(#41), both on the $0 free tier, each one web service (the single
+image — API serves the SPA):
 
-| Environment | Service | Database | Advances via |
+| Environment | Service | Data store | Advances via |
 | --- | --- | --- | --- |
-| dev | `sql-server` | `sdip-db` (free) | every push to `main` (CI deploy hook) |
-| production | `sql-server-prod` | `sdip-db-prod` (Starter, ~$7/mo) | **Manual Deploy** click in the dashboard |
+| dev | `sql-server` | SQLite in the container (ephemeral) | every push to `main` (CI deploy hook) |
+| production | `sql-server-prod` | `sdip-db` — the workspace's one free Postgres | **Promote dev to production** workflow (manual) |
 
-Render allows only **one free Postgres per workspace**, so the
-production database is the paid Starter plan; both web services are
-free. Nothing is shared between the environments — separate databases,
-separate URLs, separate logins.
+Render allows only **one free Postgres per workspace**, so the durable
+database belongs to production; dev's state is ephemeral by design (a
+fresh deploy resets it to the reseeded demo data). Nothing is shared
+between the environments — separate data stores, separate URLs,
+separate logins. No payment method is required anywhere.
 
 1. Push the repository to GitHub (Render reads the blueprint from it).
 2. Render Dashboard → **New → Blueprint** → select the repository.
-   Render builds the root `Dockerfile`, provisions both databases, and
-   deploys both services. (Already deployed? Pushing blueprint changes
-   shows them on the **Blueprints** page — click **Sync** to apply.)
+   Render builds the root `Dockerfile`, provisions `sdip-db` for
+   production, and deploys both services. (Already deployed? Pushing
+   blueprint changes shows them on the **Blueprints** page — click
+   **Sync** to apply.)
 3. **Dev** is live at **`https://sql-server-n68y.onrender.com`** —
    Render suffixes the service name when the plain one is taken
    globally (names are global; the CI variable `RENDER_APP_URL` must
@@ -689,10 +691,21 @@ separate URLs, separate logins.
    rotated to the override automatically (dev keeps the demo
    defaults).
 
-**Promotion (dev → production):** verify the change on dev, then
-Dashboard → `sql-server-prod` → **Manual Deploy → Deploy latest
-commit**. Production never deploys on push (`autoDeploy: false`); if
-SSO is ever enabled, register a second redirect URI
+**Promotion (dev → production):**
+[`.github/workflows/promote-to-prod.yml`](.github/workflows/promote-to-prod.yml)
+is a **manual** workflow: GitHub → **Actions → "Promote dev to
+production" → Run workflow**. It verifies dev is serving the tip of
+`main`, fires the production deploy hook, and waits until
+production's `/health` reports the same commit. One-time setup:
+
+- repository **secret** `RENDER_PROD_DEPLOY_HOOK` — the production
+  service's deploy hook (Render → `sql-server-prod` → Settings →
+  Deploy hooks → copy)
+- repository **variable** `RENDER_PROD_APP_URL` — the production URL
+
+Production never deploys on push (`autoDeploy: false`); the dashboard's
+**Manual Deploy → Deploy latest commit** on `sql-server-prod` remains a
+direct fallback. If SSO is ever enabled, register a second redirect URI
 (`<prod-url>/auth/callback`) at the identity provider.
 
 CI/CD ([`.github/workflows/ci.yaml`](.github/workflows/ci.yaml)): every
@@ -709,10 +722,11 @@ the secret the deploy job no-ops with a message.
 > POST replaces the cloud role.
 
 Free-plan notes: services sleep after inactivity (first visit waits
-~30-60s), and free Postgres instances expire periodically (Render
-currently: 30 days) — the demo data reseeds automatically. Point
-`E2E_BASE_URL` at either deployed URL to run the e2e journey against a
-live environment too.
+~30-60s), the dev SQLite file resets on every deploy, and the free
+production Postgres is recycled periodically (Render currently: ~30
+days) — the app reseeds demo data whenever a database is empty, so
+export reports as PDFs to keep records. Point `E2E_BASE_URL` at either
+deployed URL to run the e2e journey against a live environment too.
 
 ### Frontend on Vercel
 
