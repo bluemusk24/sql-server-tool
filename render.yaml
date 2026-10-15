@@ -52,6 +52,16 @@ services:
       # SQLite in the container's writable, ephemeral /data directory.
       - key: SDIP_DATABASE_URL
         value: sqlite:////data/sdip.db
+      # OpenTelemetry (#44): SDIP_ENVIRONMENT labels every span
+      # (dev / prod / local). The OTLP endpoint and its auth header are
+      # dashboard-only (sync: false) — traces stay dormant until a
+      # backend is configured.
+      - key: SDIP_ENVIRONMENT
+        value: dev
+      - key: OTEL_EXPORTER_OTLP_ENDPOINT
+        sync: false
+      - key: OTEL_EXPORTER_OTLP_HEADERS
+        sync: false
 
   # ── production ─────────────────────────────────────────────────────
   # The :prod channel tag is moved only by the promote workflow.
@@ -74,6 +84,14 @@ services:
       - key: SEED_DBA_PASSWORD
         sync: false
       - key: SEED_ADMIN_PASSWORD
+        sync: false
+      # OpenTelemetry (#44): same model as dev — environment label in
+      # the blueprint, OTLP destination dashboard-only.
+      - key: SDIP_ENVIRONMENT
+        value: prod
+      - key: OTEL_EXPORTER_OTLP_ENDPOINT
+        sync: false
+      - key: OTEL_EXPORTER_OTLP_HEADERS
         sync: false
 
 databases:

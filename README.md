@@ -741,6 +741,27 @@ fallback. If SSO is ever enabled, register a second redirect URI
 > ECR (public repo → free registry, built-in `GITHUB_TOKEN`, no AWS
 > account) and deploy-hook POSTs replacing cloud roles.
 
+### OpenTelemetry (#44)
+
+The backend is auto-instrumented with OpenTelemetry (FastAPI +
+SQLAlchemy): each HTTP request becomes a **trace** — a root span for the
+request, child spans for the database queries inside it — and every span
+carries who is serving it:
+
+| Attribute | Value |
+| --- | --- |
+| `service.name` | `sql-server` |
+| `deployment.environment` | `dev` / `prod` from `SDIP_ENVIRONMENT` (`local` by default) |
+| `service.version` | the **deployed image reference** — the same tag the deploy gates verify |
+| `commit.sha` | the baked build commit |
+
+Telemetry is **dormant until configured**: set `OTEL_EXPORTER_OTLP_ENDPOINT`
+(OTLP/HTTP; plus `OTEL_EXPORTER_OTLP_HEADERS` if the backend needs auth)
+on a service's Environment tab and the next deploy starts exporting —
+no code change. Both are `sync: false` in the blueprint, so the values
+live only in the Render dashboard. Local runs, CI, and the compose e2e
+stay silent by design.
+
 Free-plan notes: services sleep after inactivity (first visit waits
 ~30-60s), the dev SQLite file resets on every deploy, and the free
 production Postgres is recycled periodically (Render currently: ~30

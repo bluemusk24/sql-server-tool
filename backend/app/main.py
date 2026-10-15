@@ -26,6 +26,7 @@ from app.db import (
 from app.routers import auth, health, investigations, jobs, orgs, reports
 from app.spa import mount_frontend
 from app.store import apply_seed_overrides, seed_database
+from app.telemetry import setup_telemetry
 
 # Origins permitted when $CORS_ALLOW_ORIGINS is unset: the Vite dev server
 # that `make run` starts, so local development needs no configuration.
@@ -69,6 +70,10 @@ def create_app(database_url: str | None = None) -> FastAPI:
     app.state.engine = engine
     app.state.SessionLocal = make_session_factory(engine)
     init_schema(engine, url)
+
+    # OpenTelemetry (#44): auto-instrument requests and queries when an
+    # OTLP endpoint is configured — a no-op otherwise.
+    setup_telemetry(app)
 
     # Seed demo data once, on a fresh database; then rotate any seeded
     # demo login to its SEED_*_PASSWORD override (#41).
