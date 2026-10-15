@@ -1,19 +1,19 @@
 # Render blueprint — two independent environments, both on the $0
-# free tier (#41):
+# free tier (#41), serving pre-built registry images (#42):
 #
-#   dev          sql-server      → SQLite in the container, auto-deploys from main
-#   production   sql-server-prod → sdip-db (the workspace's ONE free Postgres)
+#   dev          sql-server      → ghcr.io/.../sql-server-tool:dev
+#   production   sql-server-prod → ghcr.io/.../sql-server-tool:prod
+#   database     sdip-db (the workspace's ONE free Postgres) → production
 #
-# Render allows only one free Postgres per workspace, so the durable
-# database belongs to production, where data continuity matters; dev's
-# state is ephemeral by design (a fresh deploy resets it to reseeded
-# demo data).
-#
-# Deployment:
-#   dev          automatic — every green push to main (CI deploy hook)
-#   production   manual — GitHub → Actions → "Promote dev to production"
-#                (dashboard fallback: sql-server-prod → Manual Deploy →
-#                Deploy latest commit)
+# CI builds the image once per push to main and publishes an immutable
+# YYYYMMDD-HHMMSS-shortsha tag to GHCR (the repo is public, so the
+# package is free and Render pulls it with no credentials):
+#   - the deploy job moves :dev  to the tested tag, then fires the hook
+#   - the promote workflow moves :prod to what dev currently serves
+# Render pulls the channel tag on every deploy and restart, so each
+# channel must always equal what that environment should serve.
+# Deploy: GitHub → Actions → "Promote dev to production" (manual) for
+# production; dev deploys on every green push to main (CI).
 #
 # Production hardening: set SEED_DBA_PASSWORD / SEED_ADMIN_PASSWORD on
 # sql-server-prod so the shared URL never uses the published demo
@@ -23,6 +23,10 @@
 # The service name decides the public URL: https://<name>.onrender.com.
 # The dev name must stay `sql-server` — renaming it changes the shared
 # URL and breaks the CI deploy gate (RENDER_APP_URL).
+#
+# One-time migration note: switching an existing service from
+# `runtime: docker` (source build) to `runtime: image` applies in place
+# under the same name — the URL does not change.
 #
 # Free-plan notes:
 #   - both services sleep after inactivity; the first visit after an
@@ -35,27 +39,29 @@
 
 services:
   # ── dev ────────────────────────────────────────────────────────────
+  # The :dev channel tag is moved only by ci.yaml's gated deploy job,
+  # so a restart can never pick up an untested build.
   - type: web
     name: sql-server
-    runtime: docker
+    runtime: image
     plan: free
     healthCheckPath: /health
+    image:
+      url: ghcr.io/bluemusk24/sql-server-tool:dev
     envVars:
       # SQLite in the container's writable, ephemeral /data directory.
-      # The image's default (relative ./sqlserver_tool.db) would also
-      # work — the path is made explicit here.
       - key: SDIP_DATABASE_URL
         value: sqlite:////data/sdip.db
 
   # ── production ─────────────────────────────────────────────────────
-  # Same image, its own Postgres, no auto-deploy: promotion is a
-  # deliberate action (the manual promote workflow, #41).
+  # The :prod channel tag is moved only by the promote workflow.
   - type: web
     name: sql-server-prod
-    runtime: docker
+    runtime: image
     plan: free
-    autoDeploy: false
     healthCheckPath: /health
+    image:
+      url: ghcr.io/bluemusk24/sql-server-tool:prod
     envVars:
       - key: SDIP_DATABASE_URL
         fromDatabase:

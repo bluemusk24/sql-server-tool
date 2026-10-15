@@ -83,6 +83,18 @@ COPY backend/alembic.ini ./
 COPY --from=frontend-build /src/frontend/dist /app/frontend
 ENV FRONTEND_DIST=/app/frontend
 
+# Build provenance (#42): the registry reference and commit baked in at
+# build time. /health reports both so deploy gates can verify exactly
+# which image is serving — image-backed Render services have no git
+# link, so RENDER_GIT_COMMIT alone cannot identify the running code.
+# CI passes both build args; local builds leave them empty (null in
+# /health). Declared here so arg changes don't invalidate the layer
+# stack above (app code + deps).
+ARG SDIP_IMAGE=
+ARG SDIP_BUILD_SHA=
+ENV SDIP_IMAGE=$SDIP_IMAGE \
+    SDIP_BUILD_SHA=$SDIP_BUILD_SHA
+
 # Non-root, and owns /app so the default SQLite file can be created
 # there. /data exists in the image (owned by appuser) so a named volume
 # mounted there — e.g. `-v sdip-data:/data` with

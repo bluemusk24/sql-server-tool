@@ -659,31 +659,55 @@ docker compose up --build
 ### Deploy to Render (blueprint)
 
 [`render.yaml`](render.yaml) describes **two independent environments**
-(#41), both on the $0 free tier, each one web service (the single
-image — API serves the SPA):
+(#41), both on the $0 free tier, both serving **pre-built images from
+GHCR** (#42) — one web service each (the single image — API serves the
+SPA):
 
-| Environment | Service | Data store | Advances via |
-| --- | --- | --- | --- |
-| dev | `sql-server` | SQLite in the container (ephemeral) | every push to `main` (CI deploy hook) |
-| production | `sql-server-prod` | `sdip-db` — the workspace's one free Postgres | **Promote dev to production** workflow (manual) |
+| Environment | Service | Data store | Image channel | Advances via |
+| --- | --- | --- | --- | --- |
+| dev | `sql-server` | SQLite in the container (ephemeral) | `ghcr.io/…/sql-server-tool:dev` | every push to `main` (CI build → registry → pull) |
+| production | `sql-server-prod` | `sdip-db` — the workspace's one free Postgres | `ghcr.io/…/sql-server-tool:prod` | **Promote dev to production** workflow (manual) |
 
 Render allows only **one free Postgres per workspace**, so the durable
 database belongs to production; dev's state is ephemeral by design (a
 fresh deploy resets it to the reseeded demo data). Nothing is shared
 between the environments — separate data stores, separate URLs,
-separate logins. No payment method is required anywhere.
+separate logins, separate images-in-service. No payment method is
+required anywhere: the repo is public, so GHCR storage and pulls are
+free and Render pulls the images without credentials.
 
-1. Push the repository to GitHub (Render reads the blueprint from it).
-2. Render Dashboard → **New → Blueprint** → select the repository.
-   Render builds the root `Dockerfile`, provisions `sdip-db` for
-   production, and deploys both services. (Already deployed? Pushing
-   blueprint changes shows them on the **Blueprints** page — click
-   **Sync** to apply.)
-3. **Dev** is live at **`https://sql-server-n68y.onrender.com`** —
-   Render suffixes the service name when the plain one is taken
-   globally (names are global; the CI variable `RENDER_APP_URL` must
-   match the final URL shown on the service page). The **production**
-   URL (`sql-server-prod-*.onrender.com`) appears on its service page.
+**Build → deploy split (#42):** CI no longer lets Render build during
+the deploy. Every push to `main` gets two stages
+([`.github/workflows/ci.yaml`](.github/workflows/ci.yaml)):
+
+1. **Build** — in parallel with the test suite, `docker/build-push-action`
+   builds the image once (`linux/amd64`, GHA layer cache) and pushes an
+   immutable tag **`YYYYMMDD-HHMMSS-shortsha`** (UTC, 7-char sha — e.g.
+   `20260818-163457-83242da`) to `ghcr.io/<owner>/<repo>`. The build
+   args `SDIP_IMAGE` / `SDIP_BUILD_SHA` are baked in, and `/health`
+   reports them as `image` / `commit`.
+2. **Deploy** — only after backend + frontend **and** Playwright e2e
+   pass, CI moves the **`:dev` channel tag** to that exact tag (a
+   restart can never pick up an untested build), fires Render's deploy
+   hook, and gates until `/health` reports the baked commit. Render
+   pulls the image from GHCR — the deploy stage never builds.
+
+One-time setup:
+
+1. After the first green CI run on `main`: make the GHCR package
+   **public** — github.com → your profile → Packages → `sql-server-tool`
+   → Package settings → *Change visibility → Public* (required before
+   Render can pull it; free, one click).
+2. Render Dashboard → **Blueprints** → the repository → **Sync**. This
+   switches `sql-server` from a source build to the `:dev` image
+   *in place* (same name, same URL — watch the sync preview; nothing
+   should be proposed for recreation) and creates `sql-server-prod`
+   pulling `:prod` (CI bootstraps that tag if it's missing) plus the
+   `sdip-db` database for production.
+3. **Dev** is live at **`https://sql-server-n68y.onrender.com`** — the
+   CI variable `RENDER_APP_URL` must match the final URL on the service
+   page. The **production** URL (`sql-server-prod-*.onrender.com`)
+   appears on its service page.
 4. On `sql-server-prod`, set **Environment → SEED_DBA_PASSWORD** and
    **SEED_ADMIN_PASSWORD** to private values — production must not ship
    with the published demo logins. Timing is safe either way: on the
@@ -694,32 +718,27 @@ separate logins. No payment method is required anywhere.
 **Promotion (dev → production):**
 [`.github/workflows/promote-to-prod.yml`](.github/workflows/promote-to-prod.yml)
 is a **manual** workflow: GitHub → **Actions → "Promote dev to
-production" → Run workflow**. It verifies dev is serving the tip of
-`main`, fires the production deploy hook, and waits until
-production's `/health` reports the same commit. One-time setup:
+production" → Run workflow**. It asks dev's `/health` which image ref
+it is currently serving, verifies that image exists in GHCR, moves the
+`:prod` channel tag to it, fires the production deploy hook, and waits
+until production's `/health` reports **that exact image reference**.
+An optional `image` input promotes a specific historical tag instead —
+that's also the rollback path. One-time setup:
 
 - repository **secret** `RENDER_PROD_DEPLOY_HOOK` — the production
   service's deploy hook (Render → `sql-server-prod` → Settings →
   Deploy hooks → copy)
 - repository **variable** `RENDER_PROD_APP_URL` — the production URL
 
-Production never deploys on push (`autoDeploy: false`); the dashboard's
-**Manual Deploy → Deploy latest commit** on `sql-server-prod` remains a
-direct fallback. If SSO is ever enabled, register a second redirect URI
+Production never deploys on push; the dashboard's **Manual Deploy →
+Deploy latest reference** on `sql-server-prod` remains a direct
+fallback. If SSO is ever enabled, register a second redirect URI
 (`<prod-url>/auth/callback`) at the identity provider.
 
-CI/CD ([`.github/workflows/ci.yaml`](.github/workflows/ci.yaml)): every
-push runs backend + frontend tests **in parallel**, then builds the
-compose stack and runs the Playwright e2e suite against it, and — on
-`main` only — triggers the **dev** Render deploy and **waits for
-`/health` to return the deployed commit** before reporting success. The
-hook URL lives in the `RENDER_DEPLOY_HOOK` repository secret (currently
-configured: green merges to `main` redeploy dev automatically); without
-the secret the deploy job no-ops with a message.
-
 > The original pipeline brief targeted AWS with a GitHub OIDC role;
-> the owner swapped the destination to Render, where a deploy-hook
-> POST replaces the cloud role.
+> the owner swapped the destination to Render, with GHCR instead of
+> ECR (public repo → free registry, built-in `GITHUB_TOKEN`, no AWS
+> account) and deploy-hook POSTs replacing cloud roles.
 
 Free-plan notes: services sleep after inactivity (first visit waits
 ~30-60s), the dev SQLite file resets on every deploy, and the free

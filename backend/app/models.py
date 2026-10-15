@@ -50,11 +50,17 @@ class Session(BaseModel):
 class HealthStatus(BaseModel):
     status: str
     version: str
-    # Served commit (#38): sourced from RENDER_GIT_COMMIT on Render so
-    # the CI deploy gate can verify the *new* code is live, not merely
-    # that some instance answers 200. Null where the runtime doesn't
-    # supply it (local compose, plain uvicorn).
+    # Served commit (#38): the SHA baked into the image (SDIP_BUILD_SHA,
+    # for registry deploys, #42) wins over RENDER_GIT_COMMIT (source
+    # deploys) — the running process is authoritative when there is no
+    # git link. CI polls until this matches the commit it deployed; null
+    # where neither is supplied (local compose, plain uvicorn).
     commit: str | None = None
+    # Full registry reference of the running image (SDIP_IMAGE, baked at
+    # build time, #42). The promote workflow reads the dev environment's
+    # value and deploys exactly that reference to production. Null for
+    # builds that aren't registry images.
+    image: str | None = None
 
 
 # ── Catalog ──────────────────────────────────────────────────────────

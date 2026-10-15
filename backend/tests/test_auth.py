@@ -29,12 +29,45 @@ def test_health_commit_is_null_when_the_runtime_supplies_none(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv("RENDER_GIT_COMMIT", raising=False)
+    monkeypatch.delenv("SDIP_BUILD_SHA", raising=False)
     body = client.get("/health").json()
     # The key is always present: CI distinguishes "old build without the
     # field" (key missing → 200-only fallback) from "field unknown"
     # (null → fallback) from "field set" (must match the pushed commit).
     assert "commit" in body
     assert body["commit"] is None
+
+
+def test_health_prefers_the_baked_image_sha_over_the_runtime_env(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Registry deploys (#42): the image's baked identity is what is
+    # actually running, even if the runtime injects a newer SHA (the
+    # repo tip may have moved past the image being promoted).
+    monkeypatch.setenv("SDIP_BUILD_SHA", "baked456")
+    monkeypatch.setenv("RENDER_GIT_COMMIT", "runtime789")
+    body = client.get("/health").json()
+    assert body["commit"] == "baked456"
+
+
+def test_health_reports_the_registry_image_reference(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(
+        "SDIP_IMAGE", "ghcr.io/bluemusk24/sql-server-tool:20260818-163457-83242da"
+    )
+    body = client.get("/health").json()
+    assert body["image"] == "ghcr.io/bluemusk24/sql-server-tool:20260818-163457-83242da"
+
+
+def test_health_image_is_null_for_non_registry_builds(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("SDIP_IMAGE", raising=False)
+    body = client.get("/health").json()
+    # Key always present (same reasoning as commit, #42).
+    assert "image" in body
+    assert body["image"] is None
 
 
 def test_login_returns_bearer_token(client: TestClient) -> None:

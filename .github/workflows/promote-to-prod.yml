@@ -1,10 +1,16 @@
-# Manual promotion, dev → production (#41).
+# Manual promotion, dev → production (#42).
 #
 # Dev deploys itself on every green push to main (see ci.yaml). This
-# workflow promotes whatever dev is running — the tip of main — to the
-# production service: it first verifies dev is serving the selected
-# commit, then fires the production service's Render deploy hook, and
-# finally gates on production's /health reporting that same commit.
+# workflow promotes the image dev is *currently serving* — read from
+# its /health endpoint — to the production service:
+#
+#   1. resolve the source ref (dev's /health `image`, or an explicit
+#      `image` input for rollbacks / promoting a specific build),
+#   2. verify it exists in GHCR,
+#   3. move the :prod channel tag to it (Render pulls the service's
+#      default tag on every deploy and restart),
+#   4. fire the production deploy hook,
+#   5. gate until production's /health reports that exact image ref.
 #
 # One-time setup (repository settings):
 #   secret  RENDER_PROD_DEPLOY_HOOK  — production service's deploy hook
@@ -15,24 +21,34 @@
 #
 # Run: GitHub → Actions → "Promote dev to production" → Run workflow
 # (branch: main). Dashboard fallback: sql-server-prod → Manual Deploy →
-# Deploy latest commit.
+# Deploy latest reference.
 
 name: Promote dev to production
 
 on:
   workflow_dispatch:
+    inputs:
+      image:
+        description: >-
+          Image tag to promote (default: the image dev is currently
+          serving). Example: 20260818-163457-83242da — use an older
+          tag to roll production back.
+        required: false
+        default: ""
 
 permissions:
   contents: read
+  packages: write # move the :prod channel tag
 
 env:
   # Dev's public URL — keep in sync with ci.yaml's RENDER_APP_URL.
   RENDER_APP_URL: https://sql-server-n68y.onrender.com
   RENDER_PROD_APP_URL: ${{ vars.RENDER_PROD_APP_URL }}
+  IMAGE_REPO: ghcr.io/bluemusk24/sql-server-tool
 
 jobs:
   promote:
-    name: Promote main to production + health gate
+    name: Deploy dev's image to production + health gate
     runs-on: ubuntu-latest
     steps:
       - name: Check prerequisites
@@ -50,87 +66,114 @@ jobs:
             echo "Add it under GitHub → Settings → Secrets and variables → Actions → Variables."
             exit 1
           fi
-          echo "Promoting to $RENDER_PROD_APP_URL"
+          echo "Promoting into $RENDER_PROD_APP_URL"
 
-      # "Take whatever development has": only promote a commit dev is
-      # actually serving. If the CI deploy for this commit is still in
-      # flight, this waits up to 10 minutes for it to land.
-      - name: Verify dev is serving this commit
+      # "Take whatever development has": ask dev what image it serves.
+      # Retries cover cold wakes; a reachable dev that reports no image
+      # (a pre-#42 source build) keeps retrying until its registry
+      # deploy lands, then fails with a clear message.
+      - name: Resolve the image to promote
+        id: src
         run: |
-          expected="$GITHUB_SHA"
-          echo "Checking $RENDER_APP_URL/health serves $expected ..."
+          INPUT_TAG="${{ inputs.image }}"
+          if [ -n "$INPUT_TAG" ]; then
+            echo "ref=$IMAGE_REPO:$INPUT_TAG" >> "$GITHUB_OUTPUT"
+            echo "promoting pinned tag from the workflow input: $INPUT_TAG"
+            exit 0
+          fi
+          echo "asking dev ($RENDER_APP_URL) which image it serves ..."
           start=$SECONDS
+          image=""
           while [ $((SECONDS - start)) -lt 600 ]; do
-            # --max-time bounds each probe: free-tier cold wake ~50s.
             body=$(curl -fsS --max-time 90 "$RENDER_APP_URL/health" 2>/dev/null || true)
-            if [ -n "$body" ]; then
-              if ! printf '%s' "$body" | jq -e 'has("commit")' >/dev/null 2>&1; then
-                echo "dev build predates the commit field — promoting tip of main anyway"
-                exit 0
+            if [ -n "$body" ] && printf '%s' "$body" | jq -e 'has("image")' >/dev/null 2>&1; then
+              image=$(printf '%s' "$body" | jq -r '.image // empty')
+              if [ -n "$image" ]; then
+                break
               fi
-              serving=$(printf '%s' "$body" | jq -r '.commit // empty')
-              if [ -z "$serving" ]; then
-                echo "dev commit unknown (RENDER_GIT_COMMIT unset) — promoting tip of main anyway"
-                exit 0
-              fi
-              # Match either direction: Render may report a short hash
-              # while GITHUB_SHA is the full one.
-              if [ "${expected#"$serving"}" != "$expected" ] \
-                 || [ "${serving#"$expected"}" != "$serving" ]; then
-                echo "dev is serving $serving — that is the version to promote"
-                exit 0
-              fi
-              echo "dev serving $serving, waiting for $expected (its deploy may still be running)"
+              echo "dev answers but serves no registry image yet (pre-#42 build) — waiting"
             else
               echo "dev not answering — waiting (free tier cold wake ~50s)"
             fi
             sleep 15
           done
-          echo "::error::dev never served $expected within 10 minutes."
-          echo "Wait for the CI run on this commit to go green, then re-run this workflow."
-          exit 1
+          if [ -z "$image" ]; then
+            echo "::error::dev is not serving a registry image within 10 minutes."
+            echo "Let the latest CI run on main finish green first, then re-run."
+            exit 1
+          fi
+          echo "dev currently serves: $image"
+          echo "ref=$image" >> "$GITHUB_OUTPUT"
 
-      - name: Trigger the production deploy, then gate on the serving commit
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify the image exists, point :prod at it, trigger the deploy
         env:
           RENDER_PROD_DEPLOY_HOOK: ${{ secrets.RENDER_PROD_DEPLOY_HOOK }}
+          REF: ${{ steps.src.outputs.ref }}
         run: |
+          if ! docker buildx imagetools inspect "$REF" >/dev/null 2>&1; then
+            echo "::error::image $REF not found in GHCR — nothing to promote."
+            exit 1
+          fi
+          # Move the production channel tag BEFORE the hook: Render
+          # pulls the service's default tag on this deploy and on every
+          # future restart, so :prod must always equal what production
+          # should serve (#42).
+          docker buildx imagetools create -t "$IMAGE_REPO:prod" "$REF"
+          echo "prod channel -> $REF"
           echo "Firing the production deploy hook ..."
           curl --fail-with-body --max-time 60 -X POST "$RENDER_PROD_DEPLOY_HOOK"
-          # Same gate as ci.yaml's dev deploy (#38): HTTP 200 alone is
-          # not enough — the *previous* production instance answers 200
-          # while the new deploy sits queued. Poll until /health
-          # reports the promoted commit (RENDER_GIT_COMMIT on Render).
-          expected="$GITHUB_SHA"
-          echo "Polling $RENDER_PROD_APP_URL/health for commit $expected ..."
+
+          # Gate: production must report the exact image reference we
+          # promoted (#42). Commit matching (#38, sha prefix of the
+          # tag) stays as a secondary check, 200-only as the last-resort
+          # fallback for builds that export neither field.
+          echo "Polling $RENDER_PROD_APP_URL/health for image $REF ..."
           start=$SECONDS
           attempt=0
-          serving=""
+          serving_image=""
+          serving_commit=""
           while [ $((SECONDS - start)) -lt 900 ]; do
             attempt=$((attempt + 1))
             body=$(curl -fsS --max-time 90 "$RENDER_PROD_APP_URL/health" 2>/dev/null || true)
             if [ -n "$body" ]; then
-              if ! printf '%s' "$body" | jq -e 'has("commit")' >/dev/null 2>&1; then
-                echo "attempt $attempt: no commit field (old build) — 200-only fallback"
+              serving_image=$(printf '%s' "$body" | jq -r '.image // empty' 2>/dev/null || true)
+              serving_commit=$(printf '%s' "$body" | jq -r '.commit // empty' 2>/dev/null || true)
+              if [ -n "$serving_image" ]; then
+                if [ "$serving_image" = "$REF" ]; then
+                  echo "production serves $serving_image — promoted in ~$((SECONDS - start))s ($attempt attempts)"
+                  exit 0
+                fi
+                echo "attempt $attempt: production serving $serving_image — waiting for $REF"
+              elif [ -n "$serving_commit" ]; then
+                # Secondary: the tag's short sha is a prefix of the full
+                # commit the image was baked from.
+                expected_sha="${REF##*-}"
+                case "$serving_commit" in
+                  "$expected_sha"*)
+                    echo "production commit $serving_commit matches $REF — promoted in ~$((SECONDS - start))s"
+                    exit 0
+                    ;;
+                esac
+                echo "attempt $attempt: production commit $serving_commit — waiting for image $REF"
+              else
+                # Neither field on this build — 200-only fallback.
+                echo "attempt $attempt: no image/commit fields — 200-only fallback"
                 echo "healthy after ~$((SECONDS - start))s ($attempt attempts)"
                 exit 0
               fi
-              serving=$(printf '%s' "$body" | jq -r '.commit // empty')
-              if [ -z "$serving" ]; then
-                echo "attempt $attempt: commit unknown (RENDER_GIT_COMMIT unset) — 200-only fallback"
-                echo "healthy after ~$((SECONDS - start))s ($attempt attempts)"
-                exit 0
-              fi
-              if [ "${expected#"$serving"}" != "$expected" ] \
-                 || [ "${serving#"$expected"}" != "$serving" ]; then
-                echo "production serves $serving — promoted in ~$((SECONDS - start))s ($attempt attempts)"
-                exit 0
-              fi
-              echo "attempt $attempt: production serving $serving — waiting for $expected"
             else
               echo "attempt $attempt: production not answering — waiting"
             fi
             sleep 15
           done
           echo "::error::production deploy gate timed out after 15 minutes"
-          echo "serving ${serving:-<none>}, expected $expected"
+          echo "serving image ${serving_image:-<none>}, expected $REF"
           exit 1

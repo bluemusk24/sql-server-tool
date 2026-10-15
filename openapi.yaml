@@ -540,10 +540,21 @@ components:
           type: string
           nullable: true
           description: >-
-            Git commit serving this response (`RENDER_GIT_COMMIT` on
-            Render); null when the runtime doesn't supply it. The CI
-            deploy gate polls until this matches the pushed commit (#38).
+            Git commit serving this response — the SHA baked into the
+            image (`SDIP_BUILD_SHA`, #42) when built for the registry,
+            else `RENDER_GIT_COMMIT` for source deploys; null when
+            neither is supplied. The CI deploy gate polls until this
+            matches the pushed commit (#38).
           example: 76195eb
+        image:
+          type: string
+          nullable: true
+          description: >-
+            Full registry reference of the running image (`SDIP_IMAGE`,
+            baked at build time, #42). The promote workflow reads the
+            dev environment's value and deploys exactly that reference
+            to production; null for builds that aren't registry images.
+          example: ghcr.io/bluemusk24/sql-server-tool:20260818-163457-83242da
 
     CatalogEntry:
       type: object
