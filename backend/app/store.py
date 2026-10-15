@@ -743,30 +743,34 @@ def seed_database(session: Session) -> None:
 
 
 def apply_seed_overrides(session: Session) -> None:
-    """Rotate seeded demo logins to their ``SEED_*_PASSWORD`` overrides (#41).
+    """Enforce the ``SEED_*_PASSWORD`` overrides on the seeded logins.
 
-    Runs on every boot and is idempotent: a login is updated only while
-    it still carries the published demo password. That way a production
-    copy whose first deploy raced ahead of its environment variables
-    still ends up with private credentials on the next restart, while
-    already-custom passwords are never touched again.
+    Runs on every boot and is idempotent. Whenever an override variable
+    is set, the matching seeded login is made to carry that value: the
+    first-boot race of #41 (database seeded before the variables
+    existed) resolves on the next restart, and an operator rotates a
+    password later by simply changing the variable and redeploying
+    (#43) — the environment is the source of truth, so a login cannot
+    keep a password the operator has moved past. Environments without
+    the variables (dev, local compose) are left exactly as seeded.
     """
     overrides = [
-        ("dba", "dba-password", os.getenv("SEED_DBA_PASSWORD")),
-        ("admin", "admin-password", os.getenv("SEED_ADMIN_PASSWORD")),
+        ("dba", os.getenv("SEED_DBA_PASSWORD")),
+        ("admin", os.getenv("SEED_ADMIN_PASSWORD")),
     ]
-    for username, demo_password, override in overrides:
-        if not override or override == demo_password:
+    for username, override in overrides:
+        if not override:
             continue
         row = session.execute(
             select(orm.UserRow).where(orm.UserRow.username == username)
         ).scalar_one_or_none()
         if row is None:
             continue
-        if verify_password(demo_password, row.password_salt, row.password_hash):
-            salt, digest = hash_password(override)
-            row.password_salt = salt
-            row.password_hash = digest
+        if verify_password(override, row.password_salt, row.password_hash):
+            continue
+        salt, digest = hash_password(override)
+        row.password_salt = salt
+        row.password_hash = digest
 
 
 def get_store(db: Session = Depends(get_db)) -> DatabaseStore:

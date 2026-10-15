@@ -710,10 +710,11 @@ One-time setup:
    appears on its service page.
 4. On `sql-server-prod`, set **Environment → SEED_DBA_PASSWORD** and
    **SEED_ADMIN_PASSWORD** to private values — production must not ship
-   with the published demo logins. Timing is safe either way: on the
-   next boot any seeded login still carrying its demo password is
-   rotated to the override automatically (dev keeps the demo
-   defaults).
+   with the published demo logins. Timing is safe either way: the
+   overrides are re-enforced on **every boot**, so a login that raced
+   ahead of the variables rotates on the next restart — and changing a
+   variable later and redeploying rotates that password again (#43).
+   Dev keeps the demo defaults (no variables set there).
 
 **Promotion (dev → production):**
 [`.github/workflows/promote-to-prod.yml`](.github/workflows/promote-to-prod.yml)
