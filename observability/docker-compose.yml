@@ -1,0 +1,98 @@
+# Local observability stack for the SQL Server Diagnostic Assistant (#45).
+#
+# A Compose project of its own (explicit `name:` below) — deliberately
+# separate from the application stack: it observes the product, it is
+# not part of it. Everything here is free and runs on the developer's
+# machine; Render's free tier cannot host always-on backends, so the
+# production candidate remains Grafana Cloud with the same OTLP shape.
+#
+#   make observability        # or: cd observability && docker compose up -d
+#   Grafana: http://localhost:3000 (anonymous admin, no login)
+#
+# Telemetry path:
+#   app --OTLP--> collector --traces--> Tempo   (:3200, Grafana queries it)
+#                     |    --logs-----> Loki    (:3100, native OTLP push)
+#                     +----metrics----> :8889 <-- Prometheus (:9090)
+name: sdip-observability
+
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.123.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC — what the app's SDK can export to
+      - "4318:4318"   # OTLP HTTP (default for our exporter)
+      - "8889:8889"   # collector's own metrics, scraped by Prometheus
+      - "13133:13133" # health check endpoint
+    depends_on:
+      - tempo
+      - loki
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:13133/"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # Traces backend. Only the query port is published — its OTLP receiver
+  # (4317/4318) is reached over the Compose network by the collector, so
+  # it must not fight the collector for the host's OTLP ports.
+  tempo:
+    image: grafana/tempo:2.6.1
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./tempo/tempo.yaml:/etc/tempo.yaml:ro
+    ports:
+      - "3200:3200" # query API (Grafana + curl)
+    restart: unless-stopped
+
+  # Logs backend. Loki 3.x ingests OTLP natively at /otlp — no
+  # translation exporter needed on the collector.
+  loki:
+    image: grafana/loki:3.2.1
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+    volumes:
+      - ./loki/loki-config.yaml:/etc/loki/local-config.yaml:ro
+    ports:
+      - "3100:3100" # query/push API (Grafana + curl)
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9090/-/ready"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    environment:
+      # Local, single-user convenience: explore without a login. Never
+      # ship this configuration anywhere shared.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 15s
+      timeout: 3s
+      retries: 5

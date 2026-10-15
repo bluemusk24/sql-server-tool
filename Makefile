@@ -8,7 +8,7 @@
 .PHONY: help run mock backend frontend setup install test \
         backend-install backend-test backend-lint backend-format \
         frontend-install frontend-test frontend-typecheck frontend-build \
-        image container postgres postgres-down e2e \
+        image container postgres postgres-down observability observability-down e2e \
         migrate migrate-new migrate-down token clean
 
 # ── Configuration ────────────────────────────────────────────────────
@@ -147,6 +147,17 @@ postgres: ## Start a local Postgres 16 container (sdip-db, data in sdip-pgdata)
 
 postgres-down: ## Remove the local Postgres container (keeps the data volume)
 	-docker rm -f $(PG_NAME) 2>/dev/null
+
+# ── Observability (#45) ──────────────────────────────────────────────
+# A separate Compose project (otel-collector, Prometheus, Loki, Tempo,
+# Grafana) — see observability/README.md. To make the backend send
+# telemetry to it, run with:
+#   OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 make backend
+observability: ## Start the local observability stack (Grafana :3000)
+	cd observability && docker compose up -d
+
+observability-down: ## Stop the observability stack (data is ephemeral)
+	cd observability && docker compose down
 
 # ── End-to-end tests (Playwright against the compose stack) ──────────
 # Starts the stack if needed, then runs the e2e container on the compose

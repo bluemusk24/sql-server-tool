@@ -1,0 +1,52 @@
+# OpenTelemetry Collector (#45): receives OTLP from the application and
+# fans it out to the backend of each signal — Tempo (traces), Loki
+# (logs, via its native OTLP endpoint), Prometheus (metrics, exposed on
+# :8889 for Prometheus to scrape) — with the debug exporter as an
+# always-available console view of what is flowing.
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 256
+  batch:
+
+exporters:
+  debug:
+    verbosity: basic
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true # plain HTTP inside the Compose network only
+  otlphttp/loki:
+    endpoint: http://loki:3100/otlp # Loki 3.x native OTLP ingestion
+    tls:
+      insecure: true
+  prometheus:
+    endpoint: 0.0.0.0:8889
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp/tempo, debug]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [prometheus, debug]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlphttp/loki, debug]

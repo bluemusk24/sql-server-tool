@@ -1,0 +1,15 @@
+# Prometheus (#45): scrapes the collector's Prometheus-facing exporter —
+# the standard pattern when the collector receives metrics over OTLP
+# but the backend speaks the scrape model.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: otel-collector
+    static_configs:
+      - targets: ["otel-collector:8889"]
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

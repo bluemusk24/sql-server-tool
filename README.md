@@ -762,6 +762,19 @@ no code change. Both are `sync: false` in the blueprint, so the values
 live only in the Render dashboard. Local runs, CI, and the compose e2e
 stay silent by design.
 
+### Local observability stack (#45)
+
+Instrumentation needs somewhere to ship to. `observability/` is a
+**separate Compose project** (`make observability`) running the $0 local
+backend: an OpenTelemetry Collector receiving OTLP on `:4317`/`:4318` and
+fanning out to **Tempo** (traces), **Loki** (logs), and **Prometheus**
+(metrics), with **Grafana** on top (`http://localhost:3000`, anonymous
+admin, all datasources pre-provisioned). Point the backend at it with
+`OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318` and explore the
+resulting traces in Grafana → Explore → Tempo → service `sql-server`.
+CI and Render never touch this stack — hosted backends (e.g. Grafana
+Cloud free tier) remain the production path. See `observability/README.md`.
+
 Free-plan notes: services sleep after inactivity (first visit waits
 ~30-60s), the dev SQLite file resets on every deploy, and the free
 production Postgres is recycled periodically (Render currently: ~30
