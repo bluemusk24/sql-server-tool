@@ -14,6 +14,9 @@ How work is organized on this project.
 
 - Tasks are GitHub issues, one at a time.
 - Read the acceptance criteria before starting and before closing.
+- Update the README when the work changes what it documents (behavior,
+  configuration, commands, workflow) — this is part of "done", not a
+  follow-up.
 - Commit regularly.
 
 ## Orchestrator

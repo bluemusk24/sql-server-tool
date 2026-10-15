@@ -36,11 +36,13 @@ collects read-only evidence and recommends next steps.
 ## Project layout
 
 ```
-backend/      # FastAPI application, SQLAlchemy store, migrations, and tests
-docs/         # spec.md, process.md, task-template.md, team roles
-frontend/     # React + TypeScript SPA
-openapi.yaml  # The API contract both sides implement
-AGENTS.md     # Instructions for coding agents
+backend/       # FastAPI application, SQLAlchemy store, migrations, and tests
+docs/          # spec.md, process.md, task-template.md, team roles
+frontend/      # React + TypeScript SPA
+observability/ # Local OTel Collector + Prometheus + Loki + Tempo + Grafana
+               # (separate Compose project — see observability/README.md)
+openapi.yaml   # The API contract both sides implement
+AGENTS.md      # Instructions for coding agents
 ```
 
 ## Quickstart
@@ -489,6 +491,7 @@ the underlying commands. Run `make` (or `make help`) to list them at any time.
 | `make migrate-down` | Revert the last migration. |
 | `make test` | Run the backend (pytest) and frontend (vitest) test suites. |
 | `make token` | Print a bearer token for the seeded `dba` user (backend must be running). |
+| `make observability` | Start the local observability stack (Grafana at `:3000`) — see [Local observability stack](#local-observability-stack-45). |
 | `make clean` | Remove caches and the frontend build output. |
 
 ### Run one half

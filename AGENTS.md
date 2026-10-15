@@ -24,9 +24,10 @@ before closing.
 ## Project layout
 
 ```
-backend/    # FastAPI application, tests, migrations
-docs/       # spec.md, process.md, team docs
-frontend/   # React + TypeScript SPA
+backend/       # FastAPI application, tests, migrations
+docs/          # spec.md, process.md, team docs
+frontend/      # React + TypeScript SPA
+observability/ # Local observability stack (separate Compose project)
 openapi.yaml
 AGENTS.md
 ```
@@ -51,6 +52,9 @@ AGENTS.md
 
 ## Rules
 
+- Update the README whenever a change affects what it documents —
+  behavior, configuration, environment variables, commands, or workflow.
+  The README must always describe the system as it is.
 - Dependencies are added in `pyproject.toml` (backend) or `package.json`
   (frontend). Do not add one without asking.
 - Work one issue at a time; read the acceptance criteria before starting and
