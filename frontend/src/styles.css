@@ -1,10 +1,11 @@
 /*
- * SDIP design system — dark ops-console theme (#36).
+ * SDIP design system — dark ops-console theme (#36, polished in #40).
  *
  * Hand-rolled, zero dependencies: design tokens first, then base
  * elements, then components. Status colors are driven by a `data-state`
- * attribute wherever a lifecycle word is displayed (investigation list
- * rows, job state), so badges color themselves.
+ * attribute wherever a lifecycle word is displayed (investigation rows,
+ * job state, report severity, API health), so one chip vocabulary
+ * repeats across every screen.
  *
  * Palette anchors: surfaces from near-black to slate, one electric
  * accent for actions, and the classic ops trio — ok green, attention
@@ -29,6 +30,7 @@
   --accent-strong: #2b8cff;
   --accent-contrast: #04121f;
   --accent-glow: rgba(69, 163, 255, 0.25);
+  --accent-soft: rgba(69, 163, 255, 0.12);
 
   --ok: #3fb950;
   --ok-bg: rgba(63, 185, 80, 0.12);
@@ -40,10 +42,12 @@
   --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --mono: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, monospace;
 
-  --radius: 10px;
-  --radius-sm: 6px;
-  --shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+  --radius: 12px;
+  --radius-sm: 8px;
+  --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  --shadow-soft: 0 2px 10px rgba(0, 0, 0, 0.35);
   --ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 
 /* ── Base ────────────────────────────────────────────────────────── */
@@ -73,13 +77,14 @@ h3 {
 h1 {
   font-size: 1.55rem;
   font-weight: 650;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.012em;
   margin: 0 0 0.75rem;
 }
 
 h2 {
   font-size: 1.05rem;
   font-weight: 600;
+  letter-spacing: -0.005em;
   margin: 0 0 0.5rem;
 }
 
@@ -96,6 +101,7 @@ p {
 a {
   color: var(--accent);
   text-decoration: none;
+  transition: color 0.15s var(--ease);
 }
 
 a:hover {
@@ -132,6 +138,33 @@ hr {
   border-radius: var(--radius-sm);
 }
 
+/* Thin dark scrollbars for the code/evidence panes */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 999px;
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     animation: none !important;
@@ -144,7 +177,7 @@ hr {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  padding: 0.7rem 1.25rem;
+  padding: 0.65rem 1.5rem;
   border-bottom: 1px solid var(--border);
   background: rgba(11, 15, 20, 0.85);
   backdrop-filter: blur(6px);
@@ -161,6 +194,10 @@ hr {
   color: var(--text);
 }
 
+.brand:hover {
+  text-decoration: none;
+}
+
 .brand::before {
   content: "◢ ";
   color: var(--accent);
@@ -169,6 +206,32 @@ hr {
 .brand-sub {
   color: var(--faint);
   font-size: 0.82rem;
+}
+
+.app-nav {
+  margin-left: auto;
+  display: flex;
+  gap: 0.25rem;
+}
+
+.app-nav a {
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-weight: 550;
+  padding: 0.3rem 0.75rem;
+  border-radius: var(--radius-sm);
+  transition: color 0.15s var(--ease), background 0.15s var(--ease);
+}
+
+.app-nav a:hover {
+  color: var(--text);
+  background: var(--surface-2);
+  text-decoration: none;
+}
+
+.app-nav a.active {
+  color: var(--accent);
+  background: var(--accent-soft);
 }
 
 /* ── Page panels ─────────────────────────────────────────────────── */
@@ -180,10 +243,11 @@ main {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
+  animation: rise-in 0.25s var(--ease);
 }
 
 main section {
-  margin: 1.1rem 0;
+  margin: 1.25rem 0;
 }
 
 /* ── Buttons ─────────────────────────────────────────────────────── */
@@ -197,13 +261,21 @@ button,
   border-radius: var(--radius-sm);
   padding: 0.48rem 1rem;
   cursor: pointer;
-  transition: filter 0.15s ease;
+  transition: filter 0.15s ease, transform 0.15s var(--ease), box-shadow 0.15s var(--ease);
 }
 
 button:hover:not(:disabled),
 .button:hover {
   filter: brightness(1.1);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-soft);
   text-decoration: none;
+}
+
+button:active:not(:disabled),
+.button:active {
+  transform: translateY(0);
+  box-shadow: none;
 }
 
 button:disabled {
@@ -215,11 +287,48 @@ a.button {
   display: inline-block;
 }
 
-/* Secondary buttons and bare links styled as buttons */
-button.linkish {
-  background: transparent;
-  color: var(--accent);
+/* Secondary, ghost, and danger variants */
+button.linkish,
+.btn-secondary {
+  background: var(--surface-2);
+  color: var(--text);
   border-color: var(--border-strong);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--muted);
+  border-color: transparent;
+}
+
+.btn-ghost:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--surface-2);
+  filter: none;
+  box-shadow: none;
+}
+
+.btn-danger {
+  background: linear-gradient(180deg, #f47676, #d9534f);
+  border-color: #c9443f;
+  color: #1c0707;
+}
+
+.btn-danger-ghost {
+  background: transparent;
+  color: var(--err);
+  border-color: var(--border-strong);
+}
+
+.btn-danger-ghost:hover:not(:disabled) {
+  border-color: var(--err);
+  background: var(--err-bg);
+  filter: none;
+}
+
+.btn-sm {
+  padding: 0.22rem 0.65rem;
+  font-size: 0.82rem;
 }
 
 /* ── Forms ───────────────────────────────────────────────────────── */
@@ -242,6 +351,7 @@ textarea {
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
   padding: 0.45rem 0.6rem;
+  transition: border-color 0.15s var(--ease), box-shadow 0.15s var(--ease);
 }
 
 input::placeholder {
@@ -309,6 +419,7 @@ input[type="checkbox"] {
   border-radius: var(--radius-sm);
   padding: 0.55rem 0.8rem;
   font-weight: 500;
+  margin: 0.6rem 0;
 }
 
 .muted {
@@ -322,7 +433,7 @@ input[type="checkbox"] {
   padding-left: 0.75rem;
 }
 
-/* ── Status badges (data-state driven) ───────────────────────────── */
+/* ── Status chips (data-state driven, one vocabulary everywhere) ─── */
 [data-state] {
   font-family: var(--mono);
   font-size: 0.78rem;
@@ -340,6 +451,7 @@ input[type="checkbox"] {
 [data-state="completed"],
 [data-state="succeeded"],
 [data-state="approved"],
+[data-state="collected"],
 [data-state="ok"] {
   color: var(--ok);
   border-color: var(--ok);
@@ -349,7 +461,9 @@ input[type="checkbox"] {
 [data-state="draft"],
 [data-state="pending"],
 [data-state="pending_approval"],
-[data-state="running"] {
+[data-state="running"],
+[data-state="medium"],
+[data-state="partial"] {
   color: var(--warn);
   border-color: var(--warn);
   background: var(--warn-bg);
@@ -358,10 +472,41 @@ input[type="checkbox"] {
 [data-state="rejected"],
 [data-state="failed"],
 [data-state="canceled"],
-[data-state="unavailable"] {
+[data-state="unavailable"],
+[data-state="high"] {
   color: var(--err);
   border-color: var(--err);
   background: var(--err-bg);
+}
+
+[data-state="low"],
+[data-state="queued"] {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+[data-state="none"] {
+  color: var(--faint);
+  border-color: var(--border-strong);
+  background: transparent;
+}
+
+/* Neutral pill (no lifecycle meaning — confidence labels, counts) */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border-radius: 999px;
+  padding: 0.12rem 0.6rem;
+  border: 1px solid var(--border-strong);
+  color: var(--muted);
+  background: var(--surface-2);
+  white-space: nowrap;
 }
 
 /* ── Login screen ────────────────────────────────────────────────── */
@@ -370,15 +515,53 @@ main.login {
   margin-top: 9vh;
 }
 
+main.login h1 {
+  font-size: 1.25rem;
+  text-align: center;
+}
+
+main.login h1::before {
+  content: "◢ ";
+  color: var(--accent);
+}
+
+main.login > p {
+  text-align: center;
+}
+
 main.login form {
-  margin-top: 1rem;
+  margin-top: 1.25rem;
 }
 
 main.login button {
   margin-top: 1.25rem;
+  width: 100%;
 }
 
 /* ── Landing & identity row ──────────────────────────────────────── */
+.hero {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 1.2rem;
+  margin-bottom: 1.3rem;
+}
+
+.hero h1 {
+  font-size: 1.7rem;
+}
+
+.hero-sub {
+  font-size: 0.95rem;
+  max-width: 42rem;
+}
+
+.hero-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-top: 1rem;
+}
+
 .landing .org,
 .landing .actor {
   display: inline-flex;
@@ -386,6 +569,10 @@ main.login button {
   gap: 0.5rem;
   margin: 0.15rem 0.6rem 0.6rem 0;
   font-size: 0.88rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.2rem 0.75rem;
 }
 
 .landing .org::before {
@@ -402,12 +589,35 @@ main.login button {
 .landing .actor button {
   padding: 0.18rem 0.6rem;
   font-size: 0.78rem;
+  margin-left: 0.25rem;
 }
 
 .health {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
   font-family: var(--mono);
-  font-size: 0.82rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.18rem 0.75rem;
+  margin: 0;
+}
+
+.health::before {
+  content: "●";
+  font-size: 0.6rem;
   color: var(--faint);
+}
+
+.health[data-state="ok"]::before {
+  color: var(--ok);
+}
+
+.health[data-state="error"]::before {
+  color: var(--err);
 }
 
 /* ── Investigation list ──────────────────────────────────────────── */
@@ -422,15 +632,19 @@ main.login button {
   justify-content: space-between;
   align-items: center;
   gap: 1rem;
-  padding: 0.6rem 0.75rem;
+  padding: 0.6rem 0.9rem;
   margin: 0.35rem 0;
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
+  transition: border-color 0.15s var(--ease), background 0.15s var(--ease),
+    transform 0.15s var(--ease);
 }
 
 .investigation-list li:hover {
   border-color: var(--border-strong);
+  background: var(--surface-3);
+  transform: translateY(-1px);
 }
 
 .investigation-list li span {
@@ -446,8 +660,35 @@ main.login button {
   color: var(--text);
 }
 
+.investigation-list .row-actions {
+  flex-wrap: nowrap;
+}
+
+.investigation-list .row-actions button {
+  margin-top: 0;
+}
+
 .investigation-list button {
   margin-top: 0.25rem;
+}
+
+.investigation-list .empty {
+  text-align: center;
+  padding: 2.4rem 1rem 2rem;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  margin: 0.6rem 0 0.75rem;
+}
+
+.empty-glyph {
+  font-size: 2rem;
+  color: var(--faint);
+  line-height: 1;
+}
+
+.empty .button {
+  margin-top: 0.9rem;
 }
 
 /* ── Approval screen ─────────────────────────────────────────────── */
@@ -471,6 +712,11 @@ main.login button {
   border-radius: var(--radius-sm);
   padding: 0.55rem 0.9rem;
   margin: 0.6rem 0;
+  transition: border-color 0.15s var(--ease);
+}
+
+.approval-screen details:hover {
+  border-color: var(--border-strong);
 }
 
 .approval-screen summary {
@@ -509,6 +755,15 @@ main.login button {
   color: var(--accent);
 }
 
+.job-status [data-state] {
+  font-size: 0.85rem;
+  padding: 0.2rem 0.8rem;
+}
+
+.job-status button {
+  margin-left: 0.4rem;
+}
+
 /* ── Report dashboard ────────────────────────────────────────────── */
 .report > section {
   background: var(--surface-2);
@@ -517,10 +772,131 @@ main.login button {
   padding: 0.9rem 1.1rem;
 }
 
+.report > section > h2 {
+  border-left: 3px solid var(--accent);
+  padding-left: 0.6rem;
+}
+
+.report .primary-cause {
+  border-left: 3px solid var(--err);
+}
+
+.report .primary-cause p strong {
+  font-size: 1.02rem;
+  color: var(--text);
+}
+
+.report dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.35rem 1.1rem;
+  margin: 0.4rem 0 0;
+}
+
+.report dt {
+  color: var(--faint);
+  font-size: 0.85rem;
+}
+
+.report dd {
+  margin: 0;
+  color: var(--text);
+}
+
 .report li {
   margin: 0.3rem 0;
 }
 
+.report details {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.9rem;
+  margin: 0.55rem 0;
+}
+
+.report summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.report summary::marker {
+  color: var(--accent);
+}
+
+.report pre {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.6rem 0.8rem;
+  overflow: auto;
+  max-height: 16rem;
+  margin: 0.4rem 0;
+}
+
+.report h3 {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin: 1rem 0 0.2rem;
+}
+
 .report .sql {
   max-height: 14rem;
+}
+
+.synthetic-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  background: linear-gradient(90deg, var(--warn-bg), rgba(217, 161, 44, 0.04));
+  border: 1px solid var(--warn);
+  color: var(--warn);
+  border-radius: var(--radius-sm);
+  padding: 0.55rem 0.9rem;
+  font-weight: 550;
+}
+
+.synthetic-banner::before {
+  content: "⚗";
+}
+
+/* ── Responsive ──────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .app-header {
+    flex-wrap: wrap;
+    padding: 0.6rem 1rem;
+  }
+
+  .app-nav {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  main {
+    margin: 1rem auto 2rem;
+    padding: 1.1rem 1rem 1.4rem;
+    border-radius: 0;
+    border-left: 0;
+    border-right: 0;
+  }
+
+  .investigation-list li {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .report dl {
+    grid-template-columns: 1fr;
+    gap: 0.1rem 0;
+  }
+
+  .report dt {
+    margin-top: 0.4rem;
+  }
 }

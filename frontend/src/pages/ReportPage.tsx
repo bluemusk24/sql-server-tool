@@ -114,10 +114,13 @@ export function ReportPage() {
           <dt>Lookback</dt>
           <dd>{r.lookback_hours} hours</dd>
           <dt>Severity</dt>
-          <dd data-testid="report-severity">{r.severity}</dd>
+          <dd data-testid="report-severity" data-state={r.severity}>
+            {r.severity}
+          </dd>
           <dt>Confidence</dt>
           <dd>
-            {r.confidence_percent}% ({r.confidence_label})
+            {r.confidence_percent}%{" "}
+            <span className="chip">({r.confidence_label})</span>
           </dd>
         </dl>
       </section>
@@ -140,7 +143,7 @@ export function ReportPage() {
         </section>
       )}
 
-      <section>
+      <section className="primary-cause">
         <h2>Primary cause</h2>
         <p>
           <strong>{r.primary_cause.title}</strong>{" "}
@@ -167,7 +170,10 @@ export function ReportPage() {
         {r.findings_by_area.map((area) => (
           <div key={area.area}>
             <h3>
-              {area.area} <em>(severity: {area.severity})</em>
+              {area.area}{" "}
+              <span className="chip" data-state={area.severity}>
+                (severity: {area.severity})
+              </span>
             </h3>
             <p>
               Confidence {area.confidence_percent}% ({area.confidence_label}),{" "}
@@ -178,7 +184,10 @@ export function ReportPage() {
                 {area.findings.map((signal) => (
                   <li key={signal.rule_id}>
                     <strong>{signal.title}</strong>{" "}
-                    <em>(severity: {signal.severity})</em> — {signal.description}
+                    <span className="chip" data-state={signal.severity}>
+                      (severity: {signal.severity})
+                    </span>{" "}
+                    — {signal.description}
                   </li>
                 ))}
               </ul>
@@ -260,7 +269,11 @@ export function ReportPage() {
 
       <section>
         <p className="disclaimer">{r.read_only_disclaimer}</p>
-        <button onClick={onDownload} disabled={downloading}>
+        <button
+          className="btn-secondary"
+          onClick={onDownload}
+          disabled={downloading}
+        >
           {downloading ? "Preparing…" : "Download PDF"}
         </button>
       </section>

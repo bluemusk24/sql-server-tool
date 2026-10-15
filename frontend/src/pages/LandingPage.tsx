@@ -18,19 +18,24 @@ export function LandingPage() {
 
   return (
     <main className="landing">
-      <h1>SQL Server Diagnostic Assistant</h1>
-      <p className="org">Organization: {session?.organization}</p>
-      <p className="actor">
-        Signed in as {session?.actor}{" "}
-        <button onClick={signOut}>Sign out</button>
-      </p>
-      <HealthStatus />
-
-      <p>
-        <Link className="button" to="/investigations/new">
-          New investigation
-        </Link>
-      </p>
+      <section className="hero">
+        <h1>SQL Server Diagnostic Assistant</h1>
+        <p className="hero-sub">
+          Read-only diagnostics for any SQL Server — collect evidence, approve
+          the run, and hand the DBA a report.
+        </p>
+        <p className="org">Organization: {session?.organization}</p>
+        <p className="actor">
+          Signed in as {session?.actor}{" "}
+          <button onClick={signOut}>Sign out</button>
+        </p>
+        <div className="hero-actions">
+          <Link className="button" to="/investigations/new">
+            New investigation
+          </Link>
+          <HealthStatus />
+        </div>
+      </section>
 
       <InvestigationList />
     </main>

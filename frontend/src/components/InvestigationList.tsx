@@ -89,33 +89,49 @@ export function InvestigationList() {
       {state.status === "ok" && (
         <>
           {state.items.length === 0 ? (
-            <p>No investigations yet.</p>
+            <div className="empty">
+              <div className="empty-glyph" aria-hidden="true">
+                ◧
+              </div>
+              <p>No investigations yet.</p>
+              <p className="hint">
+                Walk the flow: create → approve → run → report.
+              </p>
+              <Link className="button" to="/investigations/new">
+                Create your first investigation
+              </Link>
+            </div>
           ) : (
             <ul>
               {state.items.map((inv) => {
                 const link = nextLink(inv.id, inv.status);
                 return (
                   <li key={inv.id}>
-                    <span>
+                    <span className="row-info">
                       #{inv.id} —{" "}
                       <strong className="host">
                         {formatServerTarget(inv.server_host, inv.server_port)}
                       </strong>{" "}
                       <strong data-state={inv.status}>{inv.status}</strong>
-                    </span>{" "}
-                    <Link to={link.to}>{link.label}</Link>{" "}
-                    <button
-                      type="button"
-                      onClick={() => void onDelete(inv)}
-                    >
-                      Delete
-                    </button>
+                    </span>
+                    <span className="row-actions">
+                      <Link to={link.to}>{link.label}</Link>
+                      <button
+                        type="button"
+                        className="btn-danger-ghost btn-sm"
+                        onClick={() => void onDelete(inv)}
+                      >
+                        Delete
+                      </button>
+                    </span>
                   </li>
                 );
               })}
             </ul>
           )}
-          <button onClick={() => void load()}>Refresh</button>
+          <button className="btn-secondary btn-sm" onClick={() => void load()}>
+            Refresh
+          </button>
         </>
       )}
     </section>

@@ -12,7 +12,14 @@
  *   /investigations/:id/report   → report dashboard
  */
 
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import {
+  BrowserRouter,
+  NavLink,
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+} from "react-router-dom";
 import { AuthProvider } from "./auth/AuthContext";
 import { RequireAuth } from "./auth/RequireAuth";
 import { ApprovalScreen } from "./pages/ApprovalScreen";
@@ -22,14 +29,38 @@ import { LandingPage } from "./pages/LandingPage";
 import { LoginPage } from "./pages/LoginPage";
 import { ReportPage } from "./pages/ReportPage";
 
+/**
+ * The header carries the product mark plus the two primary destinations.
+ * The nav is hidden on `/login`, where there is nothing yet to navigate
+ * to (the session guard would only bounce back).
+ */
+function AppHeader() {
+  const { pathname } = useLocation();
+  const showNav = pathname !== "/login";
+
+  return (
+    <header className="app-header">
+      <NavLink className="brand" to="/">
+        SDIP
+      </NavLink>
+      <span className="brand-sub">SQL Server Diagnostics</span>
+      {showNav && (
+        <nav className="app-nav" aria-label="Primary">
+          <NavLink to="/" end>
+            Queue
+          </NavLink>
+          <NavLink to="/investigations/new">New</NavLink>
+        </nav>
+      )}
+    </header>
+  );
+}
+
 export function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
-        <header className="app-header">
-          <span className="brand">SDIP</span>
-          <span className="brand-sub">SQL Server Diagnostics</span>
-        </header>
+        <AppHeader />
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route element={<RequireAuth />}>

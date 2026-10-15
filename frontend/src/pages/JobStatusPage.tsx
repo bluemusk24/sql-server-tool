@@ -114,6 +114,7 @@ export function JobStatusPage() {
           The run is in progress…{" "}
           <button
             type="button"
+            className="btn-secondary"
             onClick={() => void onCancel()}
             disabled={canceling}
           >
