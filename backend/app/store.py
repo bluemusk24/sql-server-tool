@@ -8,6 +8,7 @@ previous in-memory implementation.
 
 from __future__ import annotations
 
+import os
 import secrets
 import uuid
 from dataclasses import dataclass, field
@@ -682,7 +683,12 @@ def seed_database(session: Session) -> None:
         orm.OrganizationRow(name="Acme Corp", issuer="https://idp.acme.example")
     )
 
-    salt, digest = hash_password("dba-password")
+    # Demo credentials by default; a production copy overrides them via the
+    # environment (#41) so a shared URL never ships with published passwords.
+    dba_password = os.getenv("SEED_DBA_PASSWORD") or "dba-password"
+    admin_password = os.getenv("SEED_ADMIN_PASSWORD") or "admin-password"
+
+    salt, digest = hash_password(dba_password)
     session.add(
         orm.UserRow(
             username="dba",
@@ -692,7 +698,7 @@ def seed_database(session: Session) -> None:
             password_hash=digest,
         )
     )
-    salt2, digest2 = hash_password("admin-password")
+    salt2, digest2 = hash_password(admin_password)
     session.add(
         orm.UserRow(
             username="admin",

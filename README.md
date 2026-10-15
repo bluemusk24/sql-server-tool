@@ -658,36 +658,59 @@ docker compose up --build
 
 ### Deploy to Render (blueprint)
 
-[`render.yaml`](render.yaml) describes the production shape: one web
-service (the single image — API serves the SPA) plus a free managed
-Postgres, wired together via `SDIP_DATABASE_URL`.
+[`render.yaml`](render.yaml) describes **two independent environments**
+(#41), each one web service (the single image — API serves the SPA)
+with its own managed Postgres, wired via `SDIP_DATABASE_URL`:
+
+| Environment | Service | Database | Advances via |
+| --- | --- | --- | --- |
+| dev | `sql-server` | `sdip-db` (free) | every push to `main` (CI deploy hook) |
+| production | `sql-server-prod` | `sdip-db-prod` (Starter, ~$7/mo) | **Manual Deploy** click in the dashboard |
+
+Render allows only **one free Postgres per workspace**, so the
+production database is the paid Starter plan; both web services are
+free. Nothing is shared between the environments — separate databases,
+separate URLs, separate logins.
 
 1. Push the repository to GitHub (Render reads the blueprint from it).
 2. Render Dashboard → **New → Blueprint** → select the repository.
-   Render builds the root `Dockerfile`, provisions `sdip-db`, and
-   deploys the service.
-3. The app is live at **`https://sql-server-n68y.onrender.com`** —
+   Render builds the root `Dockerfile`, provisions both databases, and
+   deploys both services. (Already deployed? Pushing blueprint changes
+   shows them on the **Blueprints** page — click **Sync** to apply.)
+3. **Dev** is live at **`https://sql-server-n68y.onrender.com`** —
    Render suffixes the service name when the plain one is taken
    globally (names are global; the CI variable `RENDER_APP_URL` must
-   match the final URL shown on the service page).
+   match the final URL shown on the service page). The **production**
+   URL (`sql-server-prod-*.onrender.com`) appears on its service page.
+4. On `sql-server-prod`, set **Environment → SEED_DBA_PASSWORD** and
+   **SEED_ADMIN_PASSWORD** to private values before the first deploy —
+   production must not ship with the published demo logins. (Dev keeps
+   the demo defaults.)
+
+**Promotion (dev → production):** verify the change on dev, then
+Dashboard → `sql-server-prod` → **Manual Deploy → Deploy latest
+commit**. Production never deploys on push (`autoDeploy: false`); if
+SSO is ever enabled, register a second redirect URI
+(`<prod-url>/auth/callback`) at the identity provider.
 
 CI/CD ([`.github/workflows/ci.yaml`](.github/workflows/ci.yaml)): every
 push runs backend + frontend tests **in parallel**, then builds the
 compose stack and runs the Playwright e2e suite against it, and — on
-`main` only — triggers the Render deploy and **waits for `/health` to
-return 200** before reporting success. The hook URL lives in the
-`RENDER_DEPLOY_HOOK` repository secret (currently configured: green
-merges to `main` redeploy the live instance automatically); without
+`main` only — triggers the **dev** Render deploy and **waits for
+`/health` to return the deployed commit** before reporting success. The
+hook URL lives in the `RENDER_DEPLOY_HOOK` repository secret (currently
+configured: green merges to `main` redeploy dev automatically); without
 the secret the deploy job no-ops with a message.
 
 > The original pipeline brief targeted AWS with a GitHub OIDC role;
 > the owner swapped the destination to Render, where a deploy-hook
 > POST replaces the cloud role.
 
-Free-plan notes: the service sleeps after inactivity (first visit waits
-~30-60s), and free Postgres instances recycle after 90 days — the demo
-data reseeds automatically. Point `E2E_BASE_URL` at the deployed URL to
-run the e2e journey against production too.
+Free-plan notes: services sleep after inactivity (first visit waits
+~30-60s), and free Postgres instances expire periodically (Render
+currently: 30 days) — the demo data reseeds automatically. Point
+`E2E_BASE_URL` at either deployed URL to run the e2e journey against a
+live environment too.
 
 ### Frontend on Vercel
 
