@@ -849,6 +849,15 @@ front door, built from `observability/deploy/`:
   dashboard's Active alerts panel; connect a contact point
   (email/Slack/webhook) in Grafana to receive them. Details in
   `observability/README.md`.
+- **On-call worker** (`on-call-engineer/`): a dependency-free Python
+  script polls the same alert API every minute; each new firing alert
+  starts one headless coding-agent session (`opencode run --auto` by
+  default) with the alert details and an on-call prompt — investigate,
+  smallest fix + tests + commit if it's a real bug, explanation and no
+  code change if it's a false positive. Dedup by alert fingerprint
+  (one session per firing alert), and one view covers dev and prod —
+  alerts name their environment via `deployment_environment`. See
+  `on-call-engineer/README.md`.
 - **CI**: `.github/workflows/observability.yaml` builds the image
   (`:YYYYMMDD-HHMMSS-shortsha-obs`, channel `:obs`) when
   `observability/**` changes and fires the service's deploy hook —

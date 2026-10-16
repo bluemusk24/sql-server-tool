@@ -132,6 +132,9 @@ fires on the counter behind the dashboard's *Creation failures* panel
   hookup with whatever channel you have.
 - **Local check**: `make observability` → the rule is in the same
   folder; the local stack provisions it identically.
+- **Reaction**: `on-call-engineer/poll.py` (repo root) polls this
+  Alertmanager API every minute and starts a headless coding-agent
+  session per firing alert — see `on-call-engineer/README.md`.
 
 ## Notes
 
