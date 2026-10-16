@@ -503,7 +503,7 @@
       "id": 7,
       "type": "alertlist",
       "title": "Active alerts",
-      "description": "Firing/pending alerts from the SDIP alert rules (see observability/deploy/otel-lgtm/grafana-alerting.yaml). To also receive alerts by email/Slack/webhook, add a contact point under Alerting -> Contact points.",
+      "description": "Firing/pending alerts from the SDIP alert rules (see grafana/provisioning/alerting/sdip-alerts.yaml). To also receive alerts by email/Slack/webhook, add a contact point under Alerting -> Contact points.",
       "datasource": {
         "type": "grafana",
         "uid": "-- Grafana --"

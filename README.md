@@ -818,8 +818,9 @@ stats for active users,
 investigations created, reports generated, and creation failures, plus
 rate/trend panels — with **Environment** and **Deployed version**
 dropdowns (multi-select, *All* default) filtering every panel via the
-`deployment_environment` / `service_version` labels. See
-`observability/README.md`.
+`deployment_environment` / `service_version` labels — and an **Active
+alerts** panel showing the state of the provisioned alert rule (see
+*Alerting* below). See `observability/README.md`.
 
 ### Deployed observability backend (#48)
 
@@ -835,11 +836,19 @@ front door, built from `observability/deploy/`:
   gated by the `X-Sdip-Otlp-Token` header; everything else is Grafana,
   which requires a real login (anonymous access and sign-ups disabled —
   the upstream image ships anonymous-Admin for demos; the admin
-  password is a dashboard-only secret). Prometheus, Loki and Tempo are
+  password is a dashboard-only secret). Prometheus and Tempo are
   never exposed: only Grafana reaches them, from inside the container.
 - **Dev and prod both point here**, so one dashboard shows both
   environments side by side through the Environment dropdown
   (`deployment_environment` = `dev` / `prod`).
+- **Alerting**: a provisioned Grafana rule fires **Repeated creation
+  failures** when more than 3 creations fail within 15 minutes
+  (sustained 5 minutes) on any environment — every alert carries the
+  service, environment, deployed version, owner, and a link to the
+  dashboard. Firing alerts show under Alerting → Alerts and on the
+  dashboard's Active alerts panel; connect a contact point
+  (email/Slack/webhook) in Grafana to receive them. Details in
+  `observability/README.md`.
 - **CI**: `.github/workflows/observability.yaml` builds the image
   (`:YYYYMMDD-HHMMSS-shortsha-obs`, channel `:obs`) when
   `observability/**` changes and fires the service's deploy hook —

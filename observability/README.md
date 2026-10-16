@@ -75,10 +75,10 @@ app --OTLP--> collector --traces--> Tempo   (:3200)
 | Piece | Role |
 | --- | --- |
 | `deploy/Dockerfile` | `FROM grafana/otel-lgtm:0.36.0` + Caddy + our Grafana provisioning; publishes `ghcr.io/…/sql-server-tool:…-obs` and the `:obs` channel |
-| `deploy/otel-lgtm/Caddyfile` | The one public port: `/v1/*` → OTLP ingest (token-gated), everything else → Grafana (login required). Prometheus/Loki/Tempo stay on loopback |
+| `deploy/otel-lgtm/Caddyfile` | The one public port: `/v1/*` → OTLP ingest (token-gated), everything else → Grafana (login required). Prometheus/Tempo stay on loopback |
 | `deploy/otel-lgtm/sdip-start.sh` | Entrypoint: Caddy first, then upstream `run-all.sh` |
-| `deploy/otel-lgtm/run-all.sh` | Upstream v0.36.0 copy **minus Pyroscope** (512 MB RAM budget); rebase against upstream when bumping the base image |
-| `deploy/otel-lgtm/grafana-*.yaml`, `grafana/dashboards/application-metrics.json` | Datasources (uid `prometheus` etc.) + the SDIP dashboard, baked into the image so they survive data resets |
+| `deploy/otel-lgtm/run-all.sh` | Upstream v0.36.0 copy **minus Pyroscope and Loki** (512 MB RAM budget); rebase against upstream when bumping the base image |
+| `deploy/otel-lgtm/grafana-*.yaml`, `grafana/dashboards/application-metrics.json`, `grafana/provisioning/alerting/sdip-alerts.yaml` | Datasources (uid `prometheus` etc.) + the SDIP dashboard + the alert rule, baked into the image so they survive data resets |
 
 The deployed image is **trimmed for the 512 MB free instance**: Loki,
 Grafana's auto-installed plugin backends and Tempo's span-metrics
@@ -102,6 +102,36 @@ services. Resource attributes arrive as Prometheus labels via the
 image's `promote_resource_attributes` (`deployment_environment`,
 `service_version`) — the same label names the local stack produces, so
 the dashboard works on both unchanged.
+
+## Alerting
+
+**Repeated creation failures** (`sdip-creation-failures`) is a
+Grafana-managed alert rule provisioned from
+`grafana/provisioning/alerting/sdip-alerts.yaml` into the `SDIP` folder — it
+fires on the counter behind the dashboard's *Creation failures* panel
+(`sdip_creations_failed_total`, `object_type` = `investigation` |
+`report`):
+
+- **Query**: `sum by (service_name, deployment_environment,
+  service_version, object_type) (increase(sdip_creations_failed_total[15m]))`
+- **Threshold**: `> 3` failures in 15 minutes, sustained `for: 5m` —
+  creations are human-paced and normally never fail, so several
+  failures in a short window already means users are stuck; the 5-minute
+  sustain filters one-off blips. No-data is OK (quiet periods must not
+  alert); a query error alerts.
+- **Every firing alert carries**: `service_name`,
+  `deployment_environment`, and `service_version` (labels promoted from
+  the OTLP resource attributes), plus `owner: dba-team`, `severity:
+  warning`, and the `dashboard_url` annotation — edit the `owner` in
+  `sdip-alerts.yaml` if the on-call DBA changes.
+- **Where you see it**: Grafana → **Alerting → Alerts**, and the
+  dashboard's **Active alerts** panel. To also *receive* alerts
+  (email/Slack/Teams webhook), add a contact point under **Alerting →
+  Contact points** — Grafana's default email contact point needs SMTP
+  credentials, so push delivery is deliberately left as a one-step
+  hookup with whatever channel you have.
+- **Local check**: `make observability` → the rule is in the same
+  folder; the local stack provisions it identically.
 
 ## Notes
 
