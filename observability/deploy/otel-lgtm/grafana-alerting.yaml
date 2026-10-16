@@ -1,0 +1,100 @@
+# Alerting for the deployed observability backend (#48 follow-up:
+# alerting). One Grafana-managed rule, provisioned like the dashboard.
+#
+# "Repeated creation failures" — sdip_creations_failed_total is the
+# counter behind the dashboard's Creation failures panel (object.type =
+# investigation | report; raised whenever a creation request errors).
+#
+# Threshold rationale (real user impact):
+#   - creations are human-paced and normally never fail, so a couple of
+#     failures in 15 minutes already means someone is stuck;
+#   - >= 3 failures in 15 min = several failed attempts (or several
+#     users) hitting the same broken path — worth interrupting someone;
+#   - for: 5m keeps one-off blips from paging;
+#   - noDataState OK: quiet nights must not alert.
+#
+# Every alert carries service, environment, deployed version (labels
+# promoted from the OTLP resource attributes by the collector) plus the
+# owner and the dashboard URL (annotations below). Change `owner` here
+# if the on-call DBA changes — it is a label AND an annotation.
+#
+# Notifications: alerts always appear in Grafana's Alerting UI and on
+# the dashboard's "Active alerts" panel. To also receive them by email/
+# Slack/webhook, add a contact point in Grafana (Alerting → Contact
+# points) — see observability/README.md.
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: sdip-creations
+    folder: SDIP
+    interval: 1m
+    rules:
+      - uid: sdip-creation-failures
+        title: Repeated creation failures
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: prometheus
+            model:
+              refId: A
+              editorMode: code
+              instant: true
+              range: false
+              intervalMs: 60000
+              maxDataPoints: 43200
+              expr: >-
+                sum by (service_name, deployment_environment, service_version,
+                object_type) (increase(sdip_creations_failed_total[15m]))
+          - refId: B
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - operator:
+                    type: and
+                  query:
+                    refId: B
+                  reducer:
+                    type: last
+                  evaluator:
+                    type: gt
+                    params: [3]
+              refId: C
+        noDataState: OK
+        execErrState: Alerting
+        for: 5m
+        isPaused: false
+        labels:
+          owner: dba-team
+          severity: warning
+        annotations:
+          summary: >-
+            Repeated {{ $labels.object_type }} creation failures on
+            {{ $labels.service_name }} ({{ $labels.deployment_environment }},
+            version {{ $labels.service_version }}): {{ $value }} failures
+            within 15 minutes, sustained for 5 minutes.
+          description: >-
+            Creation requests are failing repeatedly — users on this
+            environment cannot create {{ $labels.object_type }}s. Check the
+            app logs for the same environment and deployed version, then
+            roll back or hotfix. Owner: dba-team.
+          owner: dba-team
+          dashboard_url: https://sdip-observability.onrender.com/d/sdip-app-metrics

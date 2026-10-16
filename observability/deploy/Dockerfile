@@ -46,6 +46,7 @@ COPY deploy/otel-lgtm/otelcol-config.yaml        /otel-lgtm/otelcol-config.yaml
 COPY deploy/otel-lgtm/tempo-config.yaml          /otel-lgtm/tempo-config.yaml
 COPY deploy/otel-lgtm/grafana-datasources.yaml   /otel-lgtm/grafana/conf/provisioning/datasources/grafana-datasources.yaml
 COPY deploy/otel-lgtm/grafana-dashboards.yaml    /otel-lgtm/grafana/conf/provisioning/dashboards/grafana-dashboards.yaml
+COPY deploy/otel-lgtm/grafana-alerting.yaml      /otel-lgtm/grafana/conf/provisioning/alerting/sdip-alerts.yaml
 COPY grafana/dashboards/application-metrics.json /otel-lgtm/sdip-application-metrics.json
 RUN chmod +x /otel-lgtm/run-all.sh /otel-lgtm/run-grafana.sh /otel-lgtm/grafana-plugins.sh /otel-lgtm/sdip-start.sh
 
