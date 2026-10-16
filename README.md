@@ -826,7 +826,9 @@ dropdowns (multi-select, *All* default) filtering every panel via the
 `sdip-observability` (https://sdip-observability.onrender.com) runs the
 **same stack on Render's free tier**, as its own service separate from
 the application stack: Grafana's all-in-one `grafana/otel-lgtm` image
-(collector + Prometheus + Loki + Tempo + Grafana) wrapped by a Caddy
+(collector + Prometheus + Tempo + Grafana — trimmed to fit the free
+tier's 512 MB: no Loki, no Grafana plugin downloads, no Tempo
+span-metrics generator) wrapped by a Caddy
 front door, built from `observability/deploy/`:
 
 - **One public port, split by path**: `/v1/*` is the OTLP ingest,

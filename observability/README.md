@@ -80,6 +80,10 @@ app --OTLP--> collector --traces--> Tempo   (:3200)
 | `deploy/otel-lgtm/run-all.sh` | Upstream v0.36.0 copy **minus Pyroscope** (512 MB RAM budget); rebase against upstream when bumping the base image |
 | `deploy/otel-lgtm/grafana-*.yaml`, `grafana/dashboards/application-metrics.json` | Datasources (uid `prometheus` etc.) + the SDIP dashboard, baked into the image so they survive data resets |
 
+The deployed image is **trimmed for the 512 MB free instance**: Loki,
+Grafana's auto-installed plugin backends and Tempo's span-metrics
+generator are dropped — metrics and traces only.
+
 Runtime configuration is env-only (see the `sdip-observability` block in
 `render.yaml`); secrets are `sync: false`, dashboard-only:
 

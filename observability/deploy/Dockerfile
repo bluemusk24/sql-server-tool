@@ -9,10 +9,11 @@
 #      port per service):
 #        /v1/*  → OTLP ingest (token-gated) → collector :4318
 #        else   → Grafana :3000 (login required)
-#      Prometheus, Loki and Tempo are never exposed: only Grafana
-#      reaches them, from inside the container.
-#   2. Pyroscope removed — profiles are unused and the free instance
-#      has 512 MB RAM for the whole stack.
+#      Prometheus and Tempo are never exposed: only Grafana reaches
+#      them, from inside the container.
+#   2. Trimmed to fit the free instance's 512 MB: no Pyroscope, no
+#      Loki (metrics + traces only), no Grafana plugin downloads, no
+#      Tempo span-metrics generator, collector memory-limited.
 #   3. The SDIP application-metrics dashboard (#47) provisioned.
 #
 # Built by .github/workflows/observability.yaml, which publishes an
@@ -37,12 +38,16 @@ COPY --from=caddy-fetch /tmp/caddy /usr/local/bin/caddy
 # Upstream entrypoint (patched: no Pyroscope) + front door + Grafana
 # provisioning overrides. Paths mirror the upstream image layout.
 COPY deploy/otel-lgtm/run-all.sh                 /otel-lgtm/run-all.sh
+COPY deploy/otel-lgtm/run-grafana.sh             /otel-lgtm/run-grafana.sh
+COPY deploy/otel-lgtm/grafana-plugins.sh         /otel-lgtm/grafana-plugins.sh
 COPY deploy/otel-lgtm/sdip-start.sh              /otel-lgtm/sdip-start.sh
 COPY deploy/otel-lgtm/Caddyfile                  /otel-lgtm/Caddyfile
+COPY deploy/otel-lgtm/otelcol-config.yaml        /otel-lgtm/otelcol-config.yaml
+COPY deploy/otel-lgtm/tempo-config.yaml          /otel-lgtm/tempo-config.yaml
 COPY deploy/otel-lgtm/grafana-datasources.yaml   /otel-lgtm/grafana/conf/provisioning/datasources/grafana-datasources.yaml
 COPY deploy/otel-lgtm/grafana-dashboards.yaml    /otel-lgtm/grafana/conf/provisioning/dashboards/grafana-dashboards.yaml
 COPY grafana/dashboards/application-metrics.json /otel-lgtm/sdip-application-metrics.json
-RUN chmod +x /otel-lgtm/run-all.sh /otel-lgtm/sdip-start.sh
+RUN chmod +x /otel-lgtm/run-all.sh /otel-lgtm/run-grafana.sh /otel-lgtm/grafana-plugins.sh /otel-lgtm/sdip-start.sh
 
 # Render proxies its HTTPS endpoint to this port (web-service default).
 EXPOSE 10000

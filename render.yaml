@@ -6,8 +6,8 @@
 #   production   sql-server-prod     → ghcr.io/.../sql-server-tool:prod
 #   database     sdip-db (the workspace's ONE free Postgres) → production
 #   observability sdip-observability → ghcr.io/.../sql-server-tool:obs
-#                (collector + Prometheus + Loki + Tempo + Grafana;
-#                built from observability/deploy/ by its own workflow)
+#                (collector + Prometheus + Tempo + Grafana, trimmed to
+#                the free tier's 512 MB; built from observability/deploy/
 #
 # CI builds the image once per push to main and publishes an immutable
 # YYYYMMDD-HHMMSS-shortsha tag to GHCR (the repo is public, so the

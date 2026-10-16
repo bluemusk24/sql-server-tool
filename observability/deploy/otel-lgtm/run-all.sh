@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 #
 # Patched copy of upstream grafana/docker-otel-lgtm v0.36.0
-# docker/run-all.sh: Pyroscope removed (profiles are unused; the
-# deployed instance has 512 MB RAM for the whole stack, #48). When
-# rebasing onto a newer otel-lgtm, diff against upstream and carry
-# these deletions over — everything else must stay identical.
+# docker/run-all.sh: Pyroscope AND Loki removed (the app exports
+# metrics and traces only; the deployed instance has 512 MB RAM for
+# the whole stack, #48). When rebasing onto a newer otel-lgtm, diff
+# against upstream and carry these deletions over — everything else
+# must stay identical.
 
 READY_FILE=${LGTM_READY_FILE:-/tmp/ready}
 rm -f "$READY_FILE"
@@ -66,10 +67,6 @@ start_component "grafana"
 ./run-grafana.sh &
 component_pids[grafana]=$!
 
-start_component "loki"
-./run-loki.sh &
-component_pids[loki]=$!
-
 start_component "otelcol"
 ./run-otelcol.sh &
 component_pids[otelcol]=$!
@@ -90,7 +87,6 @@ declare -A service_ready elapsed_times
 # Define services and their health check URLs
 declare -A services
 services["grafana"]="http://127.0.0.1:3000/api/health"
-services["loki"]="http://127.0.0.1:3100/ready"
 services["prometheus"]="http://127.0.0.1:9090/api/v1/status/runtimeinfo"
 services["tempo"]="http://127.0.0.1:3200/ready"
 services["otelcol"]="http://127.0.0.1:13133/ready"
@@ -183,7 +179,6 @@ echo "Total startup time: ${total_elapsed} seconds"
 # Print time summary
 echo -e "\nStartup Time Summary:"
 echo "Grafana: ${elapsed_times[grafana]} seconds"
-echo "Loki: ${elapsed_times[loki]} seconds"
 echo "Prometheus: ${elapsed_times[prometheus]} seconds"
 echo "Tempo: ${elapsed_times[tempo]} seconds"
 echo "OpenTelemetry collector: ${elapsed_times[otelcol]} seconds"
