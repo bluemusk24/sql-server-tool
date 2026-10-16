@@ -1,9 +1,13 @@
-# Render blueprint — two independent environments, both on the $0
-# free tier (#41), serving pre-built registry images (#42):
+# Render blueprint — two environments plus a separate observability
+# backend, all on the $0 free tier (#41, #42, #48), serving pre-built
+# registry images:
 #
-#   dev          sql-server      → ghcr.io/.../sql-server-tool:dev
-#   production   sql-server-prod → ghcr.io/.../sql-server-tool:prod
+#   dev          sql-server          → ghcr.io/.../sql-server-tool:dev
+#   production   sql-server-prod     → ghcr.io/.../sql-server-tool:prod
 #   database     sdip-db (the workspace's ONE free Postgres) → production
+#   observability sdip-observability → ghcr.io/.../sql-server-tool:obs
+#                (collector + Prometheus + Loki + Tempo + Grafana;
+#                built from observability/deploy/ by its own workflow)
 #
 # CI builds the image once per push to main and publishes an immutable
 # YYYYMMDD-HHMMSS-shortsha tag to GHCR (the repo is public, so the
@@ -53,9 +57,12 @@ services:
       - key: SDIP_DATABASE_URL
         value: sqlite:////data/sdip.db
       # OpenTelemetry (#44): SDIP_ENVIRONMENT labels every span
-      # (dev / prod / local). The OTLP endpoint and its auth header are
-      # dashboard-only (sync: false) — traces stay dormant until a
-      # backend is configured.
+      # (dev / prod / local). Both OTLP values are dashboard-only
+      # (sync: false): point them at the observability backend (#48),
+      #   OTEL_EXPORTER_OTLP_ENDPOINT=https://sdip-observability.onrender.com
+      #   OTEL_EXPORTER_OTLP_HEADERS=X-Sdip-Otlp-Token=<token>
+      # with the token that is also set on sdip-observability.
+      # Left unset, telemetry stays dormant.
       - key: SDIP_ENVIRONMENT
         value: dev
       - key: OTEL_EXPORTER_OTLP_ENDPOINT
@@ -86,13 +93,60 @@ services:
       - key: SEED_ADMIN_PASSWORD
         sync: false
       # OpenTelemetry (#44): same model as dev — environment label in
-      # the blueprint, OTLP destination dashboard-only.
+      # the blueprint, OTLP destination dashboard-only (see the dev
+      # block for the values; they must point at the SAME backend so
+      # one Grafana shows both environments side by side).
       - key: SDIP_ENVIRONMENT
         value: prod
       - key: OTEL_EXPORTER_OTLP_ENDPOINT
         sync: false
       - key: OTEL_EXPORTER_OTLP_HEADERS
         sync: false
+
+  # ── observability (#48) ─────────────────────────────────────────────
+  # Separate from the application stack: Grafana's all-in-one LGTM
+  # backend (collector + Prometheus + Loki + Tempo + Grafana) behind a
+  # Caddy front door on the single exposed port:
+  #   /v1/*  → OTLP ingest, gated by OTLP_INGEST_TOKEN (dev and prod
+  #            send it in OTEL_EXPORTER_OTLP_HEADERS)
+  #   else   → Grafana, login required (no anonymous access — the
+  #            upstream image defaults to anonymous Admin, overridden
+  #            here; credentials are dashboard-only secrets)
+  # Prometheus/Loki/Tempo are never exposed publicly.
+  # Free-tier notes: no persistent disk — metrics, traces and logs
+  # live on the ephemeral filesystem and reset whenever the service
+  # redeploys, restarts, or spins down (dashboards and datasources are
+  # baked into the image and survive). The stack sleeps ~15 min after
+  # the last request, including the OTLP exports that keep it awake
+  # while dev/prod run. It shares the workspace's 750 free instance
+  # hours with the two app services.
+  - type: web
+    name: sdip-observability
+    runtime: image
+    plan: free
+    healthCheckPath: /api/health
+    image:
+      url: ghcr.io/bluemusk24/sql-server-tool:obs
+    envVars:
+      # Grafana security: never ship the upstream demo default
+      # (anonymous admin). Admin password is dashboard-only.
+      - key: GF_AUTH_ANONYMOUS_ENABLED
+        value: "false"
+      - key: GF_USERS_ALLOW_SIGN_UP
+        value: "false"
+      - key: GF_SECURITY_ADMIN_USER
+        value: admin
+      - key: GF_SECURITY_ADMIN_PASSWORD
+        sync: false
+      - key: GF_SERVER_ROOT_URL
+        value: https://sdip-observability.onrender.com
+      # Gate on /v1/* — same token as on dev/prod's
+      # OTEL_EXPORTER_OTLP_HEADERS. Dashboard-only.
+      - key: OTLP_INGEST_TOKEN
+        sync: false
+      # Bounded local TSDB (the disk is ephemeral anyway).
+      - key: PROMETHEUS_EXTRA_ARGS
+        value: --storage.tsdb.retention.size=128MB
 
 databases:
   # The workspace's single free Postgres belongs to production (#41).

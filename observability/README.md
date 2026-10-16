@@ -1,12 +1,19 @@
-# Observability stack (#45)
+# Observability stack (#45, #48)
 
-A **separate Docker Compose project** (`name: sdip-observability`) holding
-the local, $0 telemetry backend for the SQL Server Diagnostic Assistant.
-It observes the product; it is *not* part of the application stack — own
-network, own lifecycle (`make observability` / `make observability-down`),
-nothing here is touched by CI or deployed to Render (Render's free tier
-cannot host always-on backends; the production candidate is Grafana Cloud
-with the same OTLP configuration).
+Telemetry backend for the SQL Server Diagnostic Assistant, in two
+flavours that share one purpose and one dashboard:
+
+- **Local** — a **separate Docker Compose project**
+  (`name: sdip-observability`) for development on this machine:
+  own network, own lifecycle (`make observability` /
+  `make observability-down`), never built or deployed by CI.
+- **Deployed (#48)** — `deploy/` builds a Render service
+  (`sdip-observability`, https://sdip-observability.onrender.com) from
+  Grafana's all-in-one `grafana/otel-lgtm` image so **dev and prod can
+  ship to it**. See [Deployed backend](#deployed-backend-on-render-48)
+  below.
+
+Both observe the product; neither is part of the application stack.
 
 ## Quickstart
 
@@ -60,6 +67,37 @@ app --OTLP--> collector --traces--> Tempo   (:3200)
   doesn't ship logs over OTLP; adding the OTLP log exporter to the
   instrumentation is a natural next step).
 - The collector's own console view: `docker compose -p sdip-observability logs -f otel-collector`.
+
+## Deployed backend on Render (#48)
+
+`deploy/` turns the same stack into a **separate Render free service**:
+
+| Piece | Role |
+| --- | --- |
+| `deploy/Dockerfile` | `FROM grafana/otel-lgtm:0.36.0` + Caddy + our Grafana provisioning; publishes `ghcr.io/…/sql-server-tool:…-obs` and the `:obs` channel |
+| `deploy/otel-lgtm/Caddyfile` | The one public port: `/v1/*` → OTLP ingest (token-gated), everything else → Grafana (login required). Prometheus/Loki/Tempo stay on loopback |
+| `deploy/otel-lgtm/sdip-start.sh` | Entrypoint: Caddy first, then upstream `run-all.sh` |
+| `deploy/otel-lgtm/run-all.sh` | Upstream v0.36.0 copy **minus Pyroscope** (512 MB RAM budget); rebase against upstream when bumping the base image |
+| `deploy/otel-lgtm/grafana-*.yaml`, `grafana/dashboards/application-metrics.json` | Datasources (uid `prometheus` etc.) + the SDIP dashboard, baked into the image so they survive data resets |
+
+Runtime configuration is env-only (see the `sdip-observability` block in
+`render.yaml`); secrets are `sync: false`, dashboard-only:
+
+| Variable | Purpose |
+| --- | --- |
+| `OTLP_INGEST_TOKEN` | Required header value `X-Sdip-Otlp-Token` on `/v1/*` — same token dev/prod send in `OTEL_EXPORTER_OTLP_HEADERS`. Unset ⇒ gate matches nothing ⇒ ingest fails closed |
+| `GF_SECURITY_ADMIN_PASSWORD` | Grafana admin login (anonymous access and sign-ups are disabled) |
+| `PROMETHEUS_EXTRA_ARGS` | TSDB size cap (`--storage.tsdb.retention.size=128MB`) — the disk is ephemeral |
+
+CI: `.github/workflows/observability.yaml` builds and pushes on changes
+to `observability/**`, then fires the service's deploy hook
+(`RENDER_OBS_DEPLOY_HOOK` secret). Free-tier caveats: data resets on
+redeploy/restart/spin-down; the stack sleeps ~15 min after the last
+request; 750 free instance hours/month are shared with both app
+services. Resource attributes arrive as Prometheus labels via the
+image's `promote_resource_attributes` (`deployment_environment`,
+`service_version`) — the same label names the local stack produces, so
+the dashboard works on both unchanged.
 
 ## Notes
 

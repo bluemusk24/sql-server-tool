@@ -1,0 +1,75 @@
+# Observability image (#48): builds the deployable observability
+# backend (grafana/otel-lgtm + Caddy front door + SDIP dashboard) from
+# observability/deploy/ and publishes it to GHCR, then triggers the
+# sdip-observability service's deploy hook. Deliberately separate from
+# the app image and app CI: the stack is versioned and deployed
+# independently of sql-server / sql-server-prod, and it only builds
+# when observability/ changes.
+#
+# Tags: immutable YYYYMMDD-HHMMSS-shortsha-obs per build, plus the
+# mutable :obs channel (what the Render service serves; Render pulls
+# it on every deploy and restart).
+name: Observability image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "observability/**"
+      - ".github/workflows/observability.yaml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build observability image + push to GHCR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      actions: write # layer cache for buildx (type=gha)
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compute the image tag (YYYYMMDD-HHMMSS-shortsha-obs)
+        id: meta
+        run: |
+          # GHCR repository names must be lowercase.
+          REPO="${GITHUB_REPOSITORY,,}"
+          IMAGE="ghcr.io/$REPO"
+          TAG="$(date -u +%Y%m%d-%H%M%S)-${GITHUB_SHA:0:7}-obs"
+          {
+            echo "image=$IMAGE"
+            echo "ref=$IMAGE:$TAG"
+          } >> "$GITHUB_OUTPUT"
+          echo "building $IMAGE:$TAG"
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push (immutable tag + :obs channel)
+        uses: docker/build-push-action@v6
+        with:
+          context: observability
+          file: observability/deploy/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.ref }}
+            ${{ steps.meta.outputs.image }}:obs
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Trigger the sdip-observability deploy hook
+        env:
+          RENDER_OBS_DEPLOY_HOOK: ${{ secrets.RENDER_OBS_DEPLOY_HOOK }}
+        run: |
+          # No hook → the image is still published; add the service's
+          # Settings → Deploy hooks URL as RENDER_OBS_DEPLOY_HOOK to
+          # enable auto-deploys.
+          if [ -z "$RENDER_OBS_DEPLOY_HOOK" ]; then
+            echo "RENDER_OBS_DEPLOY_HOOK secret is not set — skipping deploy."
+            exit 0
+          fi
+          curl --fail-with-body --max-time 60 -X POST "$RENDER_OBS_DEPLOY_HOOK"
+          echo "deploy triggered; verify https://sdip-observability.onrender.com/api/health"

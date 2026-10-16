@@ -27,7 +27,7 @@ before closing.
 backend/       # FastAPI application, tests, migrations
 docs/          # spec.md, process.md, team docs
 frontend/      # React + TypeScript SPA
-observability/ # Local observability stack (separate Compose project)
+observability/ # Observability: local Compose stack + Render deploy image (#48)
 openapi.yaml
 AGENTS.md
 ```

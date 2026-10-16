@@ -39,8 +39,9 @@ collects read-only evidence and recommends next steps.
 backend/       # FastAPI application, SQLAlchemy store, migrations, and tests
 docs/          # spec.md, process.md, task-template.md, team roles
 frontend/      # React + TypeScript SPA
-observability/ # Local OTel Collector + Prometheus + Loki + Tempo + Grafana
-               # (separate Compose project — see observability/README.md)
+observability/ # Observability: local Compose stack (collector, Prometheus,
+               # Loki, Tempo, Grafana) + deploy/ image for Render (#48)
+               # — see observability/README.md
 openapi.yaml   # The API contract both sides implement
 AGENTS.md      # Instructions for coding agents
 ```
@@ -763,7 +764,11 @@ Telemetry is **dormant until configured**: set `OTEL_EXPORTER_OTLP_ENDPOINT`
 on a service's Environment tab and the next deploy starts exporting —
 no code change. Both are `sync: false` in the blueprint, so the values
 live only in the Render dashboard. Local runs, CI, and the compose e2e
-stay silent by design.
+stay silent by design. The deployed backend (#48) is the standard
+destination and is already wired on dev and prod:
+`OTEL_EXPORTER_OTLP_ENDPOINT=https://sdip-observability.onrender.com`
+plus `OTEL_EXPORTER_OTLP_HEADERS=X-Sdip-Otlp-Token=<token>` (the token
+lives on the observability service's Environment tab too).
 
 ### Local observability stack (#45)
 
@@ -775,8 +780,9 @@ fanning out to **Tempo** (traces), **Loki** (logs), and **Prometheus**
 admin, all datasources pre-provisioned). Point the backend at it with
 `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318` and explore the
 resulting traces in Grafana → Explore → Tempo → service `sql-server`.
-CI and Render never touch this stack — hosted backends (e.g. Grafana
-Cloud free tier) remain the production path. See `observability/README.md`.
+This local project stays local — CI never builds it as-is. For a
+backend dev and prod can reach, see the deployed observability
+backend (#48) below. See `observability/README.md`.
 
 ### Application metrics (#46)
 
@@ -802,16 +808,47 @@ rate(sdip_creations_failed_total[5m])
 ```
 
 They arrive wherever the OTLP endpoint points — the local stack
-(`make observability`) or a Grafana Cloud instance — with no further
+(`make observability`) or the deployed backend (#48) — with no further
 wiring.
 
-**Dashboard (#47):** the stack provisions **Application Metrics (#46)**
-(`http://localhost:3000/d/sdip-app-metrics`) — stats for active users,
+**Dashboard (#47):** both stacks provision **Application Metrics (#46)**
+(`/d/sdip-app-metrics` — on `http://localhost:3000` locally and on
+`https://sdip-observability.onrender.com` in the deployed backend) —
+stats for active users,
 investigations created, reports generated, and creation failures, plus
 rate/trend panels — with **Environment** and **Deployed version**
 dropdowns (multi-select, *All* default) filtering every panel via the
 `deployment_environment` / `service_version` labels. See
 `observability/README.md`.
+
+### Deployed observability backend (#48)
+
+`sdip-observability` (https://sdip-observability.onrender.com) runs the
+**same stack on Render's free tier**, as its own service separate from
+the application stack: Grafana's all-in-one `grafana/otel-lgtm` image
+(collector + Prometheus + Loki + Tempo + Grafana) wrapped by a Caddy
+front door, built from `observability/deploy/`:
+
+- **One public port, split by path**: `/v1/*` is the OTLP ingest,
+  gated by the `X-Sdip-Otlp-Token` header; everything else is Grafana,
+  which requires a real login (anonymous access and sign-ups disabled —
+  the upstream image ships anonymous-Admin for demos; the admin
+  password is a dashboard-only secret). Prometheus, Loki and Tempo are
+  never exposed: only Grafana reaches them, from inside the container.
+- **Dev and prod both point here**, so one dashboard shows both
+  environments side by side through the Environment dropdown
+  (`deployment_environment` = `dev` / `prod`).
+- **CI**: `.github/workflows/observability.yaml` builds the image
+  (`:YYYYMMDD-HHMMSS-shortsha-obs`, channel `:obs`) when
+  `observability/**` changes and fires the service's deploy hook —
+  independent of the app pipeline and its promote-to-prod gate.
+- **Free-tier caveats**: no persistent disk — metrics, traces and logs
+  live on the ephemeral filesystem and reset whenever the service
+  redeploys, restarts, or spins down (dashboards and datasources are
+  baked into the image and survive); the stack sleeps ~15 min after
+  the last request and shares the workspace's 750 free instance hours
+  with the two app services. The token gate matches nothing when
+  `OTLP_INGEST_TOKEN` is unset, so ingest fails closed, never open.
 
 Free-plan notes: services sleep after inactivity (first visit waits
 ~30-60s), the dev SQLite file resets on every deploy, and the free

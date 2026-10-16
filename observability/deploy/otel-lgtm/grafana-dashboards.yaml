@@ -1,0 +1,26 @@
+# Dashboard provisioning for the deployed observability backend (#48):
+# upstream grafana/otel-lgtm v0.36.0 providers plus the SDIP
+# application-metrics dashboard (#47).
+apiVersion: 1
+
+providers:
+  - name: "SDIP Application Metrics"
+    type: file
+    options:
+      path: /otel-lgtm/sdip-application-metrics.json
+      foldersFromFilesStructure: false
+  - name: "RED Metrics (classic histogram)"
+    type: file
+    options:
+      path: /otel-lgtm/grafana-dashboard-red-metrics-classic.json
+      foldersFromFilesStructure: false
+  - name: "RED Metrics (exponential/native histogram)"
+    type: file
+    options:
+      path: /otel-lgtm/grafana-dashboard-red-metrics-native.json
+      foldersFromFilesStructure: false
+  - name: "JVM Metrics"
+    type: file
+    options:
+      path: /otel-lgtm/grafana-dashboard-jvm-metrics.json
+      foldersFromFilesStructure: false
