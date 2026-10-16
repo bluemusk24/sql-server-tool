@@ -20,17 +20,19 @@
 # GHCR. Runtime configuration is env-only (see render.yaml): the admin
 # password and the OTLP ingest token are dashboard-only secrets.
 
+# Caddy is a single static binary; the ubi9-micro base has no package
+# manager, no tar — fetch and unpack in a scratch stage, then copy the
+# binary in. Bump the version deliberately, not automatically.
+FROM redhat/ubi9:9.8 AS caddy-fetch
+ARG CADDY_VERSION=2.10.2
+ADD https://github.com/caddyserver/caddy/releases/download/v${CADDY_VERSION}/caddy_${CADDY_VERSION}_linux_amd64.tar.gz /tmp/caddy.tar.gz
+RUN tar -xzf /tmp/caddy.tar.gz -C /tmp caddy && chmod 755 /tmp/caddy
+
 FROM grafana/otel-lgtm:0.36.0
 
 USER root
 
-# Caddy is a single static binary; the ubi9-micro base has no package
-# manager. Bump the version deliberately, not automatically.
-ARG CADDY_VERSION=2.10.2
-ADD https://github.com/caddyserver/caddy/releases/download/v${CADDY_VERSION}/caddy_${CADDY_VERSION}_linux_amd64.tar.gz /tmp/caddy.tar.gz
-RUN tar -xzf /tmp/caddy.tar.gz -C /tmp caddy \
-    && install -m 0755 /tmp/caddy /usr/local/bin/caddy \
-    && rm -f /tmp/caddy /tmp/caddy.tar.gz
+COPY --from=caddy-fetch /tmp/caddy /usr/local/bin/caddy
 
 # Upstream entrypoint (patched: no Pyroscope) + front door + Grafana
 # provisioning overrides. Paths mirror the upstream image layout.
