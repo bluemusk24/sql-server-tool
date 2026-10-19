@@ -56,7 +56,7 @@ test("DBA creates an investigation, approver reviews and runs it, DBA sees the r
   await login(dba, DBA);
 
   await dba.goto("/investigations/new");
-  await dba.getByLabel(/server host/i).fill(TARGET_HOST);
+  await dba.getByLabel(/server\/database host/i).fill(TARGET_HOST);
   await dba.getByLabel(/^port/i).fill("1433");
   await dba.getByLabel(/username/i).fill("svc-e2e");
   // Memory-only per #23/#31: never part of the payload, and this
