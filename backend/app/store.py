@@ -19,6 +19,7 @@ from fastapi import Depends
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from app import analysis
 from app import db_models as orm
 from app.db import get_db
 from app.models import CatalogEntry
@@ -162,9 +163,157 @@ _SEED_CATALOG: list[dict[str, Any]] = [
         "min_permission": "VIEW SERVER STATE",
         "read_only": True,
     },
+    # ── Database refresh & replication (the topic's headline area) ──
+    # Failed refresh/ETL steps, replication delivery lag, log-shipping
+    # restore lag, and backup freshness — the evidence behind
+    # "AI database refresh failure analysis". All read-only.
+    {
+        "id": "refresh_job_failures",
+        "key": "refresh_job_failures",
+        "title": "Failed refresh / ETL job steps",
+        "description": (
+            "List failed SQL Agent steps for refresh, ETL, and SSIS-style "
+            "jobs in the lookback window."
+        ),
+        "purpose": (
+            "Catch data-refresh pipelines (SSIS, PowerShell, loads) that "
+            "failed within the window."
+        ),
+        "category": "refresh",
+        "issue_area": "refresh",
+        "sql": (
+            "SELECT j.name AS job_name,\n"
+            "       s.step_name,\n"
+            "       s.step_id,\n"
+            "       s.subsystem,\n"
+            "       h.message\n"
+            "FROM msdb.dbo.sysjobhistory h\n"
+            "JOIN msdb.dbo.sysjobs j ON j.job_id = h.job_id\n"
+            "JOIN msdb.dbo.sysjobsteps s\n"
+            "  ON s.job_id = h.job_id AND s.step_id = h.step_id\n"
+            "WHERE h.run_status = 0\n"
+            "  AND h.step_id > 0\n"
+            "  AND h.run_date >= CONVERT(\n"
+            "        int, CONVERT(varchar(8),\n"
+            "        DATEADD(hour, -1 * :lookback_hours, GETDATE()), 112))\n"
+            "  AND (\n"
+            "    s.subsystem IN ('SSIS', 'PowerShell', 'CmdExec')\n"
+            "    OR j.name LIKE '%refresh%'\n"
+            "    OR j.name LIKE '%etl%'\n"
+            "    OR j.name LIKE '%load%'\n"
+            "    OR j.name LIKE '%ssis%'\n"
+            "    OR j.name LIKE '%package%'\n"
+            "  );"
+        ),
+        "params": ["lookback_hours"],
+        "requires_approval": True,
+        "expected_impact": "Read-only; scans msdb job history.",
+        "versions": ["2016", "2017", "2019", "2022"],
+        "min_permission": "SELECT on msdb",
+        "read_only": True,
+    },
+    {
+        "id": "replication_latency",
+        "key": "replication_latency",
+        "title": "Replication delivery latency",
+        "description": (
+            "Measure how late each replication agent is delivering to its "
+            "subscriber."
+        ),
+        "purpose": (
+            "Detect stale subscriber copies (distribution agent latency)."
+        ),
+        "category": "refresh",
+        "issue_area": "refresh",
+        "sql": (
+            "SELECT p.name AS publication_name,\n"
+            "       a.publisher_db,\n"
+            "       a.subscriber_db,\n"
+            "       a.name AS agent_name,\n"
+            "       DATEDIFF(minute, a.last_delivery_time, GETUTCDATE())\n"
+            "           AS latency_minutes\n"
+            "FROM distribution.dbo.MSpublication_agents a\n"
+            "JOIN distribution.dbo.MSpublications p ON p.pubid = a.pubid\n"
+            "WHERE a.last_delivery_time IS NOT NULL;"
+        ),
+        "params": [],
+        "requires_approval": True,
+        "expected_impact": (
+            "Read-only; queries the distribution database (an honest gap "
+            "if unavailable)."
+        ),
+        "versions": ["2016", "2017", "2019", "2022"],
+        "min_permission": "SELECT on distribution",
+        "read_only": True,
+    },
+    {
+        "id": "log_shipping_lag",
+        "key": "log_shipping_lag",
+        "title": "Log shipping restore lag",
+        "description": (
+            "Measure how late each log-shipping secondary is restoring."
+        ),
+        "purpose": "Detect stale standby copies (restore lag).",
+        "category": "refresh",
+        "issue_area": "refresh",
+        "sql": (
+            "SELECT primary_server,\n"
+            "       primary_database,\n"
+            "       secondary_database,\n"
+            "       last_restored_time,\n"
+            "       COALESCE(\n"
+            "           DATEDIFF(minute, last_restored_time, GETUTCDATE()),\n"
+            "           99999) AS restore_lag_minutes\n"
+            "FROM msdb.dbo.log_shipping_monitor_secondary;"
+        ),
+        "params": [],
+        "requires_approval": True,
+        "expected_impact": "Read-only; reads msdb monitor tables.",
+        "versions": ["2016", "2017", "2019", "2022"],
+        "min_permission": "SELECT on msdb",
+        "read_only": True,
+    },
+    {
+        "id": "backup_freshness",
+        "key": "backup_freshness",
+        "title": "Backup freshness per database",
+        "description": (
+            "Report the last full, differential, and log backup per "
+            "database."
+        ),
+        "purpose": (
+            "Flag databases whose newest full backup is missing or older "
+            "than 7 days."
+        ),
+        "category": "refresh",
+        "issue_area": "refresh",
+        "sql": (
+            "SELECT d.name AS database_name,\n"
+            "       MAX(CASE WHEN b.type = 'D' THEN b.backup_finish_date END)\n"
+            "           AS last_full,\n"
+            "       MAX(CASE WHEN b.type = 'I' THEN b.backup_finish_date END)\n"
+            "           AS last_diff,\n"
+            "       MAX(CASE WHEN b.type = 'L' THEN b.backup_finish_date END)\n"
+            "           AS last_log\n"
+            "FROM sys.databases d\n"
+            "LEFT JOIN msdb.dbo.backupset b ON b.database_name = d.name\n"
+            "GROUP BY d.name;"
+        ),
+        "params": [],
+        "requires_approval": True,
+        "expected_impact": "Read-only; scans msdb backup history.",
+        "versions": ["2016", "2017", "2019", "2022"],
+        "min_permission": "SELECT on msdb",
+        "read_only": True,
+    },
 ]
 
-CATALOG: list[CatalogEntry] = [CatalogEntry(**entry) for entry in _SEED_CATALOG]
+CATALOG: list[CatalogEntry] = [
+    # sql_text (what the DBA reviews on the approval screen) defaults
+    # to the executable sql; entries may override it explicitly.
+    CatalogEntry(**{**entry, "sql_text": entry.get("sql_text", entry["sql"])})
+    for entry in _SEED_CATALOG
+]
 
 
 def _now() -> str:
@@ -609,13 +758,16 @@ def build_demo_report(inv: Investigation, organization: str) -> dict[str, Any]:
 def apply_collection(
     report: dict[str, Any], collection: list[dict[str, Any]]
 ) -> dict[str, Any]:
-    """Blend real live-collection outcomes into the report (#31).
+    """Blend real live-collection outcomes into the report (#31, #50).
 
     Sources carry their true status; anything not collected becomes an
     explicit coverage gap (spec §3.8 — never claim unavailable evidence
-    was checked). Collected rows land grouped by issue area as raw
-    evidence. No signals or causes are invented: deriving findings needs
-    validated thresholds first (spec §10).
+    was checked). Collected evidence then runs through the analysis
+    engine (``app.analysis``): validated fixed-threshold rules derive
+    findings, the correlator picks one primary probable cause plus
+    ranked alternatives with a confidence, and the guidance knowledge
+    base attaches validation checks and remediation (with draft SQL for
+    DBA review). Nothing is fabricated and nothing is executed.
     """
     report = dict(report)
     report["data_sources"] = [
@@ -640,51 +792,11 @@ def apply_collection(
         for outcome in collection
         if outcome["status"] != "collected"
     ]
-
-    areas: dict[str, dict[str, Any]] = {}
-    for outcome in collection:
-        if outcome["status"] != "collected" or not outcome["evidence"]:
-            continue
-        area = areas.setdefault(
-            outcome["issue_area"],
-            {
-                "area": outcome["issue_area"],
-                "severity": "none",
-                "confidence_percent": 0,
-                "confidence_label": "low",
-                "signal_count": 0,
-                "findings": [],
-                "evidence": [],
-            },
+    report.update(
+        analysis.analyze(
+            collection, investigation_time=report["investigation_time"]
         )
-        area["evidence"].extend(
-            {
-                "evidence_id": f"{outcome['source_id']}-{index}",
-                "area": outcome["issue_area"],
-                "timestamp": report["investigation_time"],
-                "description": outcome["title"],
-                "details": row,
-            }
-            for index, row in enumerate(outcome["evidence"])
-        )
-    report["findings_by_area"] = list(areas.values())
-
-    collected = sum(1 for outcome in collection if outcome["status"] == "collected")
-    gaps = len(collection) - collected
-    report["rationale"] = (
-        f"Live collection: {collected} of {len(collection)} sources collected"
-        + (f"; {gaps} unavailable (see coverage gaps)." if gaps else ".")
     )
-    report["inconclusive"] = gaps > 0 or collected == 0
-    report["primary_cause"] = {
-        "title": "No primary cause determined",
-        "description": (
-            "Evidence was collected, but no decision rules have been "
-            "validated for these signals yet (docs/spec.md §10)."
-        ),
-        "confidence_percent": 0,
-        "confidence_label": "low",
-    }
     return report
 
 

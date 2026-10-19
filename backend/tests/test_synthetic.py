@@ -79,14 +79,28 @@ def test_every_issue_area_is_represented() -> None:
     catalog_areas = {entry.issue_area for entry in CATALOG}
     report_areas = {area["area"] for area in payload["findings_by_area"]}
     assert report_areas == catalog_areas
-    # Every area carries evidence rows; findings exist outside quiet areas.
-    assert all(area["evidence"] for area in payload["findings_by_area"])
+    # The demo always shows at least one area with signals, and every
+    # finding is produced by a real engine rule over sample evidence.
     assert any(area["findings"] for area in payload["findings_by_area"])
     for area in payload["findings_by_area"]:
+        evidence_ids = {item["evidence_id"] for item in area["evidence"]}
         for finding in area["findings"]:
-            assert finding["rule_id"].startswith("synthetic-")
+            assert ":" in finding["rule_id"]  # "<source>:<kind>"
             assert finding["severity"] in ("high", "medium", "low")
             assert finding["evidence_ids"]
+            # Findings only reference rows that exist (never fabricated).
+            assert set(finding["evidence_ids"]) <= evidence_ids
+            assert "synthetic sample" in finding["title"]
+
+
+def test_the_demo_runs_the_real_engine() -> None:
+    """Sample reports carry engine artifacts: confidence, guidance,
+    and a correlator rationale — not hand-written placeholders."""
+    payload = generate_synthetic_report(_inv(7), "Acme Corp", seed=42)
+    assert payload["primary_cause"]["confidence_percent"] > 0
+    assert payload["validation_checks"]
+    assert payload["remediation"]
+    assert "signal(s)" in payload["rationale"]
 
 
 def test_the_report_is_labeled_synthetic() -> None:
