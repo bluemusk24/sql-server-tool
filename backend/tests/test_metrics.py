@@ -123,3 +123,28 @@ def test_metrics_carry_environment_and_deployed_version(
     failed = by_name["sdip.creations.failed"]
     assert _sum(failed) == 1
     assert failed.data.data_points[0].attributes["object.type"] == "report"
+
+
+def test_a_scoped_creation_is_not_counted_as_a_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A creation with a database scope succeeds, so it must not raise the
+    failure counter the "Repeated creation failures" alert watches."""
+    monkeypatch.setenv("SDIP_ENVIRONMENT", "dev")
+
+    app = create_app("sqlite:///:memory:")
+    reader = InMemoryMetricReader()
+    setup_telemetry(app, exporter=InMemorySpanExporter(), metric_reader=reader)
+
+    with TestClient(app) as client:
+        headers = _login_headers(client)
+        created = client.post(
+            "/investigations",
+            headers=headers,
+            json={**_INVESTIGATION, "databases": ["Sales", "Orders"]},
+        )
+        assert created.status_code == 201, created.text
+
+    by_name, _ = _metrics_by_name(reader)
+    assert "sdip.creations.failed" not in by_name
+    assert _sum(by_name["sdip.investigations.created"]) == 1

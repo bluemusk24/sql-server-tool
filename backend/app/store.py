@@ -256,6 +256,20 @@ def _decision_from(row: orm.ApprovalDecisionRow) -> ApprovalDecision:
     )
 
 
+def _normalize_database_scope(databases: list[str] | str | None) -> list[str] | None:
+    """Normalize an investigation's database scope to a clean list of names.
+
+    ``None`` means "the whole instance" and is passed through unchanged. The
+    API sends a list of names; some older clients sent the same scope as a
+    comma-joined string, so both shapes are accepted here. Blank entries are
+    dropped and surrounding whitespace is trimmed.
+    """
+    if databases is None:
+        return None
+    names = databases.split(",") if isinstance(databases, str) else databases
+    return [name.strip() for name in names if name.strip()]
+
+
 class DatabaseStore:
     """Session-backed store. One instance per request, bound to that request's
     session (see :func:`get_store`). Reads return detached dataclasses; writes
@@ -370,18 +384,13 @@ class DatabaseStore:
         server_host: str,
         server_port: int,
         auth_type: str,
-        databases: list[str] | None,
+        databases: list[str] | str | None,
         lookback_hours: int,
     ) -> Investigation:
         # Older clients (and the SSMS export) sent the scope as a
         # comma-joined string; accept both shapes and store a clean
         # list of names.
-        if databases is not None:
-            databases = [
-                name.strip()
-                for name in databases.strip().split(",")
-                if name.strip()
-            ]
+        databases = _normalize_database_scope(databases)
         row = orm.InvestigationRow(
             status="draft",
             server_host=server_host,

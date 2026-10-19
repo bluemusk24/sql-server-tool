@@ -312,6 +312,10 @@ naming the server whenever an investigation is opened or a run starts
 (never credentials). An observer can therefore see which instance is
 under investigation at any stage, without the frontend (#34).
 
+The database scope is stored as a clean list of names; `databases: null`
+means "the whole instance". The store also accepts a legacy comma-joined
+string (`"Sales, Orders"`) and normalizes it to that list.
+
 ### Project structure
 
 ```

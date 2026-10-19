@@ -70,6 +70,56 @@ def test_create_accepts_a_named_instance(
     assert response.json()["server_host"] == "ATADBETSP001\\OISSQL"
 
 
+def test_create_with_a_database_scope(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    """A scope of specific databases is a normal request, not an error.
+
+    It used to raise inside the store (a list was treated as a string),
+    which failed the creation and fired the "Repeated creation failures"
+    alert.
+    """
+    response = client.post(
+        "/investigations",
+        headers=auth_headers,
+        json={
+            "server_host": "sql02.acme.example",
+            "server_port": 1433,
+            "auth_type": "sql",
+            "databases": ["Sales", "Orders"],
+            "lookback_hours": 8,
+        },
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["databases"] == ["Sales", "Orders"]
+
+    # The scope survives the round trip through the store.
+    listed = client.get("/investigations", headers=auth_headers).json()
+    target = next(row for row in listed if row["id"] == response.json()["id"])
+    assert target["databases"] == ["Sales", "Orders"]
+
+
+def test_create_normalizes_a_comma_joined_database_scope(
+    client: TestClient,
+) -> None:
+    """Older clients sent the scope as one comma-joined string; the store
+    still accepts it and stores a clean list of names."""
+    session = client.app.state.SessionLocal()
+    try:
+        store = DatabaseStore(session)
+        inv = store.create_investigation(
+            server_host="sql02.acme.example",
+            server_port=1433,
+            auth_type="sql",
+            databases="Sales, Orders , ",
+            lookback_hours=8,
+        )
+        session.commit()
+    finally:
+        session.close()
+    assert inv.databases == ["Sales", "Orders"]
+
+
 def test_create_rejects_malformed_hosts(
     client: TestClient, auth_headers: dict[str, str]
 ) -> None:
