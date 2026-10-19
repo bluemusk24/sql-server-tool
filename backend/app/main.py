@@ -23,7 +23,7 @@ from app.db import (
     make_session_factory,
     normalize_database_url,
 )
-from app.routers import auth, health, investigations, jobs, orgs, reports
+from app.routers import auth, fleet, health, investigations, jobs, orgs, reports
 from app.spa import mount_frontend
 from app.store import apply_seed_overrides, seed_database
 from app.telemetry import setup_telemetry
@@ -91,6 +91,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
     app.include_router(investigations.router)
     app.include_router(jobs.router)
     app.include_router(reports.router)
+    app.include_router(fleet.router)
 
     # The built SPA, when the image ships one ($FRONTEND_DIST). Mounted
     # last so every API route above — and /docs — keeps priority (#35).

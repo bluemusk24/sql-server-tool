@@ -709,6 +709,138 @@ class DatabaseStore:
         self.session.flush()
         return report
 
+    # ── Fleet view (#50) ─────────────────────────────────────────────
+    def fleet_summary(self, organization: str) -> dict[str, Any]:
+        """Failures per server across this organization's investigations.
+
+        The multi-firm fleet view: every server the *caller's*
+        organization has investigated, its findings by severity, its
+        per-area breakdown (refresh failures called out), and the most
+        recent primary cause. Platform operators never see other
+        organizations' data (spec §6) — the filter is the caller's own
+        organization, and report payloads carry the org of the DBA who
+        ran them.
+        """
+        rows = self.session.execute(
+            select(orm.InvestigationRow, orm.ReportRow)
+            .join(
+                orm.ReportRow,
+                orm.ReportRow.investigation_id == orm.InvestigationRow.id,
+            )
+            .order_by(orm.InvestigationRow.id)
+        ).all()
+
+        servers: dict[tuple[str, int], dict[str, Any]] = {}
+        recent_failures: list[dict[str, Any]] = []
+        investigations = 0
+
+        for inv_row, report_row in rows:
+            payload = dict(report_row.payload or {})
+            if payload.get("organization") != organization:
+                continue
+            investigations += 1
+            key = (inv_row.server_host, inv_row.server_port)
+            server = servers.setdefault(
+                key,
+                {
+                    "server_host": inv_row.server_host,
+                    "server_port": inv_row.server_port,
+                    "investigations": 0,
+                    "last_investigation": None,
+                    "findings_by_severity": {"high": 0, "medium": 0, "low": 0},
+                    "total_findings": 0,
+                    "refresh_findings": 0,
+                    "areas": {},
+                    "latest_report_id": None,
+                    "latest_primary_cause": "",
+                    "latest_confidence_percent": 0,
+                    "inconclusive": False,
+                },
+            )
+            server["investigations"] += 1
+            if (
+                server["last_investigation"] is None
+                or inv_row.created_at > server["last_investigation"]
+            ):
+                server["last_investigation"] = inv_row.created_at
+                server["latest_report_id"] = inv_row.id
+                server["latest_primary_cause"] = payload.get(
+                    "primary_cause", {}
+                ).get("title", "")
+                server["latest_confidence_percent"] = payload.get(
+                    "confidence_percent", 0
+                )
+                server["inconclusive"] = bool(payload.get("inconclusive"))
+
+            for area in payload.get("findings_by_area", []):
+                findings = area.get("findings") or []
+                if not findings:
+                    continue
+                area_name = area.get("area", "")
+                bucket = server["areas"].setdefault(
+                    area_name, {"findings": 0, "severity": "none"}
+                )
+                bucket["findings"] += len(findings)
+                if analysis.SEVERITY_RANK.get(
+                    area.get("severity", "none"), 0
+                ) > analysis.SEVERITY_RANK.get(bucket["severity"], 0):
+                    bucket["severity"] = area.get("severity", "none")
+                for finding in findings:
+                    severity = finding.get("severity", "low")
+                    server["findings_by_severity"][severity] = (
+                        server["findings_by_severity"].get(severity, 0) + 1
+                    )
+                    server["total_findings"] += 1
+                    if area_name == "refresh":
+                        server["refresh_findings"] += 1
+                    if severity in ("high", "medium"):
+                        recent_failures.append(
+                            {
+                                "investigation_id": inv_row.id,
+                                "server_host": inv_row.server_host,
+                                "server_port": inv_row.server_port,
+                                "area": area_name,
+                                "severity": severity,
+                                "database": finding.get("database"),
+                                "title": finding.get("title", ""),
+                                "time": payload.get("investigation_time"),
+                            }
+                        )
+
+        ranked_servers = sorted(
+            servers.values(),
+            key=lambda server: (
+                -server["findings_by_severity"].get("high", 0),
+                -server["refresh_findings"],
+                server["server_host"],
+            ),
+        )
+        totals = {
+            "servers": len(ranked_servers),
+            "investigations": investigations,
+            "findings": {
+                severity: sum(
+                    server["findings_by_severity"].get(severity, 0)
+                    for server in ranked_servers
+                )
+                for severity in ("high", "medium", "low")
+            },
+            "refresh_findings": sum(
+                server["refresh_findings"] for server in ranked_servers
+            ),
+        }
+        recent_failures.sort(
+            key=lambda failure: (failure["time"] or "", failure["severity"]),
+            reverse=True,
+        )
+        return {
+            "organization": organization,
+            "generated_at": _now(),
+            "totals": totals,
+            "servers": ranked_servers,
+            "recent_failures": recent_failures[:10],
+        }
+
 
 # ── Report builder (demo content) ───────────────────────────────────
 def build_demo_report(inv: Investigation, organization: str) -> dict[str, Any]:
