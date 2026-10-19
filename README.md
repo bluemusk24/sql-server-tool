@@ -272,7 +272,7 @@ restarts, so your data is preserved):
 | Organization | `Acme Corp` (issuer `https://idp.acme.example`) |
 | Users | `dba` / `dba-password`, `admin` / `admin-password` |
 | Catalog | 12 read-only diagnostic queries (five issue areas, including database refresh & replication) |
-| Investigation | id `1`, status `completed`, with a ready report |
+| Investigation | id `1`, status `completed`, with a ready report (labeled synthetic analysis) |
 
 ### Try the API
 

@@ -999,8 +999,16 @@ def seed_database(session: Session) -> None:
         )
 
     inv = _inv_from(inv_row)
+    # The seeded demo report runs the real analysis engine over labeled
+    # sample data, so the first report anyone opens showcases the
+    # product's actual findings, cause, and guidance (#49).
+    from app.synthetic import generate_synthetic_report  # late import: no cycle
+
     session.add(
-        orm.ReportRow(investigation_id=inv.id, payload=build_demo_report(inv, "Acme Corp"))
+        orm.ReportRow(
+            investigation_id=inv.id,
+            payload=generate_synthetic_report(inv, "Acme Corp"),
+        )
     )
 
 

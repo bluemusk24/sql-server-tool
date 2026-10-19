@@ -110,7 +110,9 @@ def test_fleet_aggregates_failures_per_server(
         "sql-b.corp.example",
         "sql01.acme.example",  # the seeded demo investigation
     }
-    # The seeded demo investigation (no findings) is included too.
+    # The seeded demo report runs the engine too (seed=1: 9 high,
+    # 3 medium, 5 refresh findings), plus one refresh-high + one
+    # storage-high per crafted investigation.
     assert fleet["totals"]["servers"] == 3
     assert fleet["totals"]["investigations"] == 3
 
@@ -127,14 +129,16 @@ def test_fleet_aggregates_failures_per_server(
     assert server["inconclusive"] is False  # a gap existed but confidence held
 
     totals = fleet["totals"]
-    assert totals["refresh_findings"] == 2
-    assert totals["findings"]["high"] == 4  # (refresh + storage) x 2 servers
-    assert totals["findings"]["medium"] == 0
+    assert totals["refresh_findings"] == 7  # 5 seeded + 1 per crafted server
+    assert totals["findings"]["high"] == 13  # 9 seeded + 2 per crafted server
+    assert totals["findings"]["medium"] == 3  # all from the seeded report
 
     failures = fleet["recent_failures"]
     assert failures
     assert any(f["area"] == "refresh" for f in failures)
     assert all(f["severity"] in ("high", "medium") for f in failures)
+    # Recent failures span the seeded and crafted investigations.
+    assert {f["server_host"] for f in failures} >= {"sql-a.corp.example"}
 
 
 def test_fleet_ranks_the_worst_server_first(
@@ -151,8 +155,15 @@ def test_fleet_ranks_the_worst_server_first(
         session.close()
 
     fleet = client.get("/fleet", headers=auth_headers).json()
-    assert fleet["servers"][0]["server_host"] == "sql-noisy.corp.example"
-    assert fleet["servers"][0]["investigations"] == 2
+    hosts = [s["server_host"] for s in fleet["servers"]]
+    # The seeded demo report (seed=1) currently carries the most
+    # findings; below it the doubled server must outrank the calm one.
+    assert hosts.index("sql-noisy.corp.example") < hosts.index(
+        "sql-calm.corp.example"
+    )
+    noisy = fleet["servers"][hosts.index("sql-noisy.corp.example")]
+    assert noisy["investigations"] == 2
+    assert noisy["findings_by_severity"]["high"] == 4  # (refresh+storage) x2
 
 
 def test_fleet_never_leaks_across_organizations(
