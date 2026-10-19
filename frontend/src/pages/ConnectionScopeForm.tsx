@@ -111,7 +111,7 @@ export function validate(state: FormState, password: string): FieldErrors {
   const errors: FieldErrors = {};
 
   if (state.serverHost.trim() === "") {
-    errors.serverHost = "Server host is required.";
+    errors.serverHost = "Server/database host is required.";
   } else if (!isValidHost(state.serverHost)) {
     errors.serverHost = "Enter a valid hostname or IP address.";
   }
@@ -241,7 +241,7 @@ export function ConnectionScopeForm() {
       {submitError && <p role="alert">{submitError}</p>}
       <form onSubmit={onSubmit} noValidate>
         <label htmlFor="server-host">
-          Server host
+          Server/database host
           <input
             id="server-host"
             type="text"

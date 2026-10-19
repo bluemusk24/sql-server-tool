@@ -106,7 +106,7 @@ export function ReportPage() {
       <section>
         <h2>Summary</h2>
         <dl>
-          <dt>Server</dt>
+          <dt>Server/database host</dt>
           <dd>
             {formatServerTarget(r.server_host, r.server_port)}
           </dd>

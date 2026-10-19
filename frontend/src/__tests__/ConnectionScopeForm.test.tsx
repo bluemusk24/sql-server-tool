@@ -41,7 +41,7 @@ function submit() {
 }
 
 function fillRequired() {
-  fireEvent.change(screen.getByLabelText(/server host/i), {
+  fireEvent.change(screen.getByLabelText(/server\/database host/i), {
     target: { value: VALID_HOST },
   });
   fireEvent.change(screen.getByLabelText(/password/i), {
@@ -70,7 +70,7 @@ describe("ConnectionScopeForm", () => {
     renderForm();
     submit();
 
-    expect(await screen.findByText(/server host is required/i)).toBeTruthy();
+    expect(await screen.findByText(/server\/database host is required/i)).toBeTruthy();
     expect(screen.getByText(/password is required/i)).toBeTruthy();
     expect(create).not.toHaveBeenCalled();
   });
@@ -79,7 +79,7 @@ describe("ConnectionScopeForm", () => {
     const create = vi.spyOn(services, "createInvestigation");
 
     renderForm();
-    fireEvent.change(screen.getByLabelText(/server host/i), {
+    fireEvent.change(screen.getByLabelText(/server\/database host/i), {
       target: { value: "not a host!" },
     });
     fireEvent.change(screen.getByLabelText(/password/i), {
@@ -229,7 +229,7 @@ describe("ConnectionScopeForm", () => {
     expect(await screen.findByText(/#31/)).toBeTruthy();
     expect(screen.queryByLabelText(/^password$/i)).toBeNull();
 
-    fireEvent.change(screen.getByLabelText(/server host/i), {
+    fireEvent.change(screen.getByLabelText(/server\/database host/i), {
       target: { value: VALID_HOST },
     });
     expect(
@@ -260,7 +260,7 @@ describe("ConnectionScopeForm", () => {
       });
 
     renderForm();
-    fireEvent.change(screen.getByLabelText(/server host/i), {
+    fireEvent.change(screen.getByLabelText(/server\/database host/i), {
       target: { value: "ATADBETSP001\\OISSQL" },
     });
     fireEvent.change(screen.getByLabelText(/password/i), {

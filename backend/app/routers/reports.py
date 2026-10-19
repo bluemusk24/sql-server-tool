@@ -19,7 +19,7 @@ router = APIRouter(tags=["reports"])
 def _report_lines(report: dict) -> list[str]:
     lines = [
         f"Organization: {report['organization']}",
-        f"Server: {report['server_host']}:{report['server_port']}",
+        f"Server/database host: {report['server_host']}:{report['server_port']}",
         f"Scope: {report['database_scope']}",
         f"Lookback (hours): {report['lookback_hours']}",
         f"Severity: {report['severity']}",
