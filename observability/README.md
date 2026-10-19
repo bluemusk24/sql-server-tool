@@ -54,7 +54,10 @@ app --OTLP--> collector --traces--> Tempo   (:3200)
   **Deployed version** dropdowns filter every panel (multi-select, *All*
   by default) through the `deployment_environment` / `service_version`
   labels that the app attaches to every metric.
-- **Traces**: Grafana → Explore → Tempo → Search → service `sql-server`.
+- **Traces**: Grafana → Explore → Tempo → Search → service `sql-server`
+  — **local stack only**; the deployed backend is metrics + alerting
+  only (Tempo removed for the 512 MB budget; traces are discarded at
+  the collector).
   Every request is a trace; the root span is the HTTP request, children
   are the SQL queries (`db.statement`).
 - **Metrics**: Explore → Prometheus → e.g. `otelcol_receiver_accepted_spans`
@@ -70,19 +73,27 @@ app --OTLP--> collector --traces--> Tempo   (:3200)
 
 ## Deployed backend on Render (#48)
 
-`deploy/` turns the same stack into a **separate Render free service**:
+`deploy/` turns a metrics-only variant of the same stack into a
+**separate Render free service**:
 
 | Piece | Role |
 | --- | --- |
 | `deploy/Dockerfile` | `FROM grafana/otel-lgtm:0.36.0` + Caddy + our Grafana provisioning; publishes `ghcr.io/…/sql-server-tool:…-obs` and the `:obs` channel |
-| `deploy/otel-lgtm/Caddyfile` | The one public port: `/v1/*` → OTLP ingest (token-gated), everything else → Grafana (login required). Prometheus/Tempo stay on loopback |
+| `deploy/otel-lgtm/Caddyfile` | The one public port: `/v1/*` → OTLP ingest (token-gated), everything else → Grafana (login required). Prometheus stays on loopback |
 | `deploy/otel-lgtm/sdip-start.sh` | Entrypoint: Caddy first, then upstream `run-all.sh` |
-| `deploy/otel-lgtm/run-all.sh` | Upstream v0.36.0 copy **minus Pyroscope and Loki** (512 MB RAM budget); rebase against upstream when bumping the base image |
+| `deploy/otel-lgtm/run-all.sh` | Upstream v0.36.0 copy **minus Pyroscope, Loki and Tempo** (512 MB RAM budget); rebase against upstream when bumping the base image |
 | `deploy/otel-lgtm/grafana-*.yaml`, `grafana/dashboards/application-metrics.json`, `grafana/provisioning/alerting/sdip-alerts.yaml` | Datasources (uid `prometheus` etc.) + the SDIP dashboard + the alert rule, baked into the image so they survive data resets |
 
-The deployed image is **trimmed for the 512 MB free instance**: Loki,
-Grafana's auto-installed plugin backends and Tempo's span-metrics
-generator are dropped — metrics and traces only.
+The deployed image is **metrics + alerting only, sized for the 512 MB
+free instance**: Loki and Grafana's auto-installed plugin backends are
+dropped, and **Tempo is removed entirely** — its WAL grew under the
+apps' constant health-check trace stream and OOM-cycled the instance
+every ~6-9 minutes (health checks failed during each reboot's ~74 s
+Grafana start, producing Render "Instance failed" events). The
+collector still *accepts* traces so client exporters never retry-storm,
+but discards them (file exporter → `/dev/null`); dashboard and
+alerting depend on Prometheus alone. The local compose stack keeps the
+full Loki + Tempo for exploration.
 
 Runtime configuration is env-only (see the `sdip-observability` block in
 `render.yaml`); secrets are `sync: false`, dashboard-only:
@@ -141,7 +152,10 @@ fires on the counter behind the dashboard's *Creation failures* panel
 - Images are pinned; configs are mounted read-only; no host bind mounts,
   so nothing writes into the repo.
 - Trace↔log correlation is provisioned at the datasource level but needs
-  trace ids in the app's log lines to become useful.
-- Optional next steps (deliberately not included): spanmetrics processor
-  + Tempo metrics_generator for service maps and RED metrics; the OTLP
-  log exporter for app logs in Loki.
+  trace ids in the app's log lines to become useful (local stack —
+  traces are discarded on the deployed backend).
+- Optional next steps (deliberately not included): bring Tempo back to
+  the deployed backend only if the memory budget grows (a paid instance
+  or a further component cut) — with its spanmetrics generator for
+  service maps and RED metrics; the OTLP log exporter for app logs in
+  Loki.

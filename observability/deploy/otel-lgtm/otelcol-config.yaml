@@ -1,8 +1,11 @@
 # Collector config for the deployed observability backend (#48),
 # slimmed for Render free tier's 512 MB:
-#   - logs + profiles pipelines dropped (the app exports metrics and
-#     traces only; Loki/Pyroscope are not in the image)
+#   - logs + profiles pipelines dropped (Loki/Pyroscope not in image)
 #   - debug exporters dropped
+#   - traces accepted but DISCARDED (file exporter -> /dev/null):
+#     Tempo was removed from the image — its WAL grew under the apps'
+#     constant health-check trace stream and OOM-cycled the instance
+#     every ~6-9 minutes. Metrics + alerting are unaffected.
 #   - memory_limiter guards the collector against being the OOM cause
 #   - self-scrape relaxed from 1s to 15s
 receivers:
@@ -39,10 +42,10 @@ exporters:
     endpoint: http://127.0.0.1:9090/api/v1/otlp
     tls:
       insecure: true
-  otlp_http/traces:
-    endpoint: http://127.0.0.1:4418
-    tls:
-      insecure: true
+  # Blackhole: keeps apps' OTLP /v1/traces POSTs succeeding (no client
+  # retry churn) while dropping every span at negligible cost.
+  file/blackhole:
+    path: /dev/null
 
 service:
   extensions: [health_check]
@@ -50,7 +53,7 @@ service:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [otlp_http/traces]
+      exporters: [file/blackhole]
     metrics:
       receivers: [otlp, prometheus/collector]
       processors: [memory_limiter, batch]

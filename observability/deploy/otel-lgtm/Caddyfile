@@ -1,12 +1,14 @@
 # Front door for the deployed observability backend (#48).
 #
 # Render exposes a single port, so OTLP and Grafana share it by path:
-#   /v1/* (OTLP/HTTP: metrics, traces, logs) → collector, gated by the
-#         OTLP_INGEST_TOKEN header — the same token dev and prod send
-#         in OTEL_EXPORTER_OTLP_HEADERS (dashboard-only secrets)
-#   everything else                          → Grafana (login required)
-# Prometheus, Loki and Tempo stay on loopback; only Grafana reaches
-# them, from inside the container.
+#   /v1/* (OTLP/HTTP) → collector, gated by the OTLP_INGEST_TOKEN
+#         header — the same token dev and prod send in
+#         OTEL_EXPORTER_OTLP_HEADERS (dashboard-only secrets).
+#         Metrics are stored; traces are accepted and discarded (no
+#         Tempo on the 512 MB instance).
+#   everything else   → Grafana (login required)
+# Prometheus stays on loopback; only Grafana reaches it, from inside
+# the container.
 {
 	admin off
 }

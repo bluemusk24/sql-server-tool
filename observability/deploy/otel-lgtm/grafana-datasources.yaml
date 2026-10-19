@@ -1,8 +1,9 @@
 # Datasources for the deployed observability backend (#48): upstream
-# grafana/otel-lgtm v0.36.0 minus Pyroscope and minus Loki (the app
-# exports metrics and traces only; Loki remains in the local compose
-# stack). The Prometheus uid stays `prometheus` so the provisioned SDIP
-# dashboard resolves unchanged.
+# grafana/otel-lgtm v0.36.0 minus Pyroscope, Loki and Tempo (the
+# deployed instance is metrics + alerting only — 512 MB budget; Loki
+# and Tempo remain in the local compose stack). The Prometheus uid
+# stays `prometheus` so the provisioned SDIP dashboard resolves
+# unchanged.
 apiVersion: 1
 
 datasources:
@@ -13,20 +14,3 @@ datasources:
     editable: true
     jsonData:
       timeInterval: 15s
-      exemplarTraceIdDestinations:
-        - name: trace_id
-          datasourceUid: tempo
-          urlDisplayLabel: "Trace: $${__value.raw}"
-
-  - name: Tempo
-    type: tempo
-    uid: tempo
-    url: http://127.0.0.1:3200
-    editable: true
-    jsonData:
-      serviceMap:
-        datasourceUid: "prometheus"
-      search:
-        hide: false
-      nodeGraph:
-        enabled: true

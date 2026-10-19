@@ -6,8 +6,9 @@
 #   production   sql-server-prod     → ghcr.io/.../sql-server-tool:prod
 #   database     sdip-db (the workspace's ONE free Postgres) → production
 #   observability sdip-observability → ghcr.io/.../sql-server-tool:obs
-#                (collector + Prometheus + Tempo + Grafana, trimmed to
-#                the free tier's 512 MB; built from observability/deploy/
+#                (collector + Prometheus + Grafana — metrics + alerting
+#                only, trimmed to the free tier's 512 MB; built from
+#                observability/deploy/
 #
 # CI builds the image once per push to main and publishes an immutable
 # YYYYMMDD-HHMMSS-shortsha tag to GHCR (the repo is public, so the
@@ -105,17 +106,19 @@ services:
 
   # ── observability (#48) ─────────────────────────────────────────────
   # Separate from the application stack: Grafana's all-in-one LGTM
-  # backend (collector + Prometheus + Loki + Tempo + Grafana) behind a
-  # Caddy front door on the single exposed port:
+  # backend (collector + Prometheus + Grafana — metrics + alerting
+  # only; Tempo/Loki/Pyroscope dropped, traces are accepted by the
+  # collector and discarded) behind a Caddy front door on the single
+  # exposed port:
   #   /v1/*  → OTLP ingest, gated by OTLP_INGEST_TOKEN (dev and prod
   #            send it in OTEL_EXPORTER_OTLP_HEADERS)
   #   else   → Grafana, login required (no anonymous access — the
   #            upstream image defaults to anonymous Admin, overridden
   #            here; credentials are dashboard-only secrets)
-  # Prometheus/Loki/Tempo are never exposed publicly.
-  # Free-tier notes: no persistent disk — metrics, traces and logs
+  # Prometheus is never exposed publicly.
+  # Free-tier notes: no persistent disk — metrics and alert history
   # live on the ephemeral filesystem and reset whenever the service
-  # redeploys, restarts, or spins down (dashboards and datasources are
+  # redeploys, restarts, or spins down (dashboards, datasources and
   # baked into the image and survive). The stack sleeps ~15 min after
   # the last request, including the OTLP exports that keep it awake
   # while dev/prod run. It shares the workspace's 750 free instance

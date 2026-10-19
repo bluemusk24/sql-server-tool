@@ -40,7 +40,8 @@ backend/       # FastAPI application, SQLAlchemy store, migrations, and tests
 docs/          # spec.md, process.md, task-template.md, team roles
 frontend/      # React + TypeScript SPA
 observability/ # Observability: local Compose stack (collector, Prometheus,
-               # Loki, Tempo, Grafana) + deploy/ image for Render (#48)
+               # Loki, Tempo, Grafana) + deploy/ image for Render (#48,
+               # metrics + alerting only) — see observability/README.md
                # — see observability/README.md
 openapi.yaml   # The API contract both sides implement
 AGENTS.md      # Instructions for coding agents
@@ -824,20 +825,22 @@ alerts** panel showing the state of the provisioned alert rule (see
 
 ### Deployed observability backend (#48)
 
-`sdip-observability` (https://sdip-observability.onrender.com) runs the
-**same stack on Render's free tier**, as its own service separate from
-the application stack: Grafana's all-in-one `grafana/otel-lgtm` image
-(collector + Prometheus + Tempo + Grafana — trimmed to fit the free
-tier's 512 MB: no Loki, no Grafana plugin downloads, no Tempo
-span-metrics generator) wrapped by a Caddy
+`sdip-observability` (https://sdip-observability.onrender.com) runs a
+**trimmed stack on Render's free tier**, as its own service separate
+from the application stack: Grafana's all-in-one `grafana/otel-lgtm`
+image (collector + Prometheus + Grafana — **metrics + alerting only**:
+no Loki, no Grafana plugin downloads, and no Tempo — its WAL grew under
+the apps' constant health-check trace stream and OOM-cycled the 512 MB
+instance every ~6-9 minutes, so traces are now accepted by the
+collector and discarded) wrapped by a Caddy
 front door, built from `observability/deploy/`:
 
 - **One public port, split by path**: `/v1/*` is the OTLP ingest,
   gated by the `X-Sdip-Otlp-Token` header; everything else is Grafana,
   which requires a real login (anonymous access and sign-ups disabled —
   the upstream image ships anonymous-Admin for demos; the admin
-  password is a dashboard-only secret). Prometheus and Tempo are
-  never exposed: only Grafana reaches them, from inside the container.
+  password is a dashboard-only secret). Prometheus is
+  never exposed: only Grafana reaches it, from inside the container.
 - **Dev and prod both point here**, so one dashboard shows both
   environments side by side through the Environment dropdown
   (`deployment_environment` = `dev` / `prod`).
@@ -862,7 +865,7 @@ front door, built from `observability/deploy/`:
   (`:YYYYMMDD-HHMMSS-shortsha-obs`, channel `:obs`) when
   `observability/**` changes and fires the service's deploy hook —
   independent of the app pipeline and its promote-to-prod gate.
-- **Free-tier caveats**: no persistent disk — metrics, traces and logs
+- **Free-tier caveats**: no persistent disk — metrics and alert state
   live on the ephemeral filesystem and reset whenever the service
   redeploys, restarts, or spins down (dashboards and datasources are
   baked into the image and survive); the stack sleeps ~15 min after

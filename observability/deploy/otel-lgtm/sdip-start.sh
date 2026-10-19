@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Entry point of the deployed observability backend (#48).
 #   1. Caddy: public port, path routing, OTLP token gate
-#   2. upstream run-all.sh: collector, Grafana, Loki, Prometheus and
-#      Tempo (it waits until every component reports ready)
+#   2. upstream run-all.sh: collector, Grafana and Prometheus (Pyroscope,
+#      Loki and Tempo are dropped for the 512 MB budget; it waits until
+#      every component reports ready)
 set -eu
 
 # An unset token must never open the ingest: with no value the gate

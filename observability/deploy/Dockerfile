@@ -1,19 +1,21 @@
 # Deployable observability backend (#48).
 #
-# Grafana's all-in-one grafana/otel-lgtm image — collector, Prometheus,
-# Loki, Tempo and Grafana, i.e. the same stack as the local compose
-# project in observability/ — with three changes for the $0 Render
-# deployment:
+# Grafana's all-in-one grafana/otel-lgtm image — collector, Prometheus
+# and Grafana (Pyroscope, Loki and Tempo dropped: the free instance's
+# 512 MB budget could not sustain Tempo's WAL under the apps' constant
+# health-check trace stream — it OOM-cycled every ~6-9 minutes) — with
+# three changes for the $0 Render deployment:
 #
 #   1. Caddy in front on the single public port (Render exposes one
 #      port per service):
 #        /v1/*  → OTLP ingest (token-gated) → collector :4318
 #        else   → Grafana :3000 (login required)
-#      Prometheus and Tempo are never exposed: only Grafana reaches
-#      them, from inside the container.
+#      Prometheus is never exposed: only Grafana reaches it, from
+#      inside the container.
 #   2. Trimmed to fit the free instance's 512 MB: no Pyroscope, no
-#      Loki (metrics + traces only), no Grafana plugin downloads, no
-#      Tempo span-metrics generator, collector memory-limited.
+#      Loki, no Tempo (traces accepted by the collector and discarded),
+#      no Grafana plugin downloads, no Tempo span-metrics generator,
+#      collector memory-limited. Metrics + alerting only.
 #   3. The SDIP application-metrics dashboard (#47) provisioned.
 #
 # Built by .github/workflows/observability.yaml, which publishes an
@@ -35,15 +37,14 @@ USER root
 
 COPY --from=caddy-fetch /tmp/caddy /usr/local/bin/caddy
 
-# Upstream entrypoint (patched: no Pyroscope) + front door + Grafana
-# provisioning overrides. Paths mirror the upstream image layout.
+# Upstream entrypoint (patched: no Pyroscope/Loki/Tempo) + front door
+# + Grafana provisioning overrides. Paths mirror the upstream layout.
 COPY deploy/otel-lgtm/run-all.sh                 /otel-lgtm/run-all.sh
 COPY deploy/otel-lgtm/run-grafana.sh             /otel-lgtm/run-grafana.sh
 COPY deploy/otel-lgtm/grafana-plugins.sh         /otel-lgtm/grafana-plugins.sh
 COPY deploy/otel-lgtm/sdip-start.sh              /otel-lgtm/sdip-start.sh
 COPY deploy/otel-lgtm/Caddyfile                  /otel-lgtm/Caddyfile
 COPY deploy/otel-lgtm/otelcol-config.yaml        /otel-lgtm/otelcol-config.yaml
-COPY deploy/otel-lgtm/tempo-config.yaml          /otel-lgtm/tempo-config.yaml
 COPY deploy/otel-lgtm/grafana-datasources.yaml   /otel-lgtm/grafana/conf/provisioning/datasources/grafana-datasources.yaml
 COPY deploy/otel-lgtm/grafana-dashboards.yaml    /otel-lgtm/grafana/conf/provisioning/dashboards/grafana-dashboards.yaml
 COPY grafana/provisioning/alerting/sdip-alerts.yaml      /otel-lgtm/grafana/conf/provisioning/alerting/sdip-alerts.yaml

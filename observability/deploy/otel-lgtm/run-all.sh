@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 #
 # Patched copy of upstream grafana/docker-otel-lgtm v0.36.0
-# docker/run-all.sh: Pyroscope AND Loki removed (the app exports
-# metrics and traces only; the deployed instance has 512 MB RAM for
-# the whole stack, #48). When rebasing onto a newer otel-lgtm, diff
-# against upstream and carry these deletions over — everything else
-# must stay identical.
+# docker/run-all.sh: Pyroscope, Loki AND Tempo removed (the deployed
+# instance has 512 MB RAM for the whole stack, #48: Tempo's unbounded
+# WAL under the apps' constant health-check trace stream OOM-cycled the
+# instance every ~6-9 minutes). The collector accepts traces and
+# discards them (file exporter -> /dev/null); metrics + alerting are
+# unaffected. When rebasing onto a newer otel-lgtm, diff against
+# upstream and carry these deletions over — everything else must stay
+# identical.
 
 READY_FILE=${LGTM_READY_FILE:-/tmp/ready}
 rm -f "$READY_FILE"
@@ -75,10 +78,6 @@ start_component "prometheus"
 ./run-prometheus.sh &
 component_pids[prometheus]=$!
 
-start_component "tempo"
-./run-tempo.sh &
-component_pids[tempo]=$!
-
 echo "Waiting for the OpenTelemetry collector and the Grafana LGTM stack to start up..."
 
 # Declare arrays to store service status and elapsed times
@@ -88,7 +87,6 @@ declare -A service_ready elapsed_times
 declare -A services
 services["grafana"]="http://127.0.0.1:3000/api/health"
 services["prometheus"]="http://127.0.0.1:9090/api/v1/status/runtimeinfo"
-services["tempo"]="http://127.0.0.1:3200/ready"
 services["otelcol"]="http://127.0.0.1:13133/ready"
 
 # Initialize service_ready status to false for all services
@@ -180,7 +178,6 @@ echo "Total startup time: ${total_elapsed} seconds"
 echo -e "\nStartup Time Summary:"
 echo "Grafana: ${elapsed_times[grafana]} seconds"
 echo "Prometheus: ${elapsed_times[prometheus]} seconds"
-echo "Tempo: ${elapsed_times[tempo]} seconds"
 echo "OpenTelemetry collector: ${elapsed_times[otelcol]} seconds"
 echo "Total: ${total_elapsed} seconds"
 
