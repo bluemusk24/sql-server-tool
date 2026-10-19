@@ -12,6 +12,7 @@ import type {
   CreateInvestigationRequest,
   CreateOrganizationRequest,
   Credentials,
+  FleetSummary,
   HealthStatus,
   InvestigationResponse,
   InvestigationSummary,
@@ -50,6 +51,9 @@ export interface ServiceClient {
   // Reports
   getReportPayload(investigationId: number): Promise<ReportPayload>;
   downloadReportPdf(investigationId: number): Promise<Blob>;
+
+  // Fleet (#49): failure summary across the organization's servers
+  getFleet(): Promise<FleetSummary>;
 
   // Orgs
   listOrganizations(): Promise<Organization[]>;

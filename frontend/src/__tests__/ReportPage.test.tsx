@@ -164,7 +164,7 @@ describe("ReportPage", () => {
 
     // Findings by area: severity + confidence heading, and the signal itself
     expect(
-      screen.getByRole("heading", { level: 3, name: /blocking \(severity: high\)/ }),
+      screen.getByRole("heading", { level: 3, name: /Blocking \(severity: high\)/ }),
     ).toBeTruthy();
     expect(screen.getByText("Blocking session 71")).toBeTruthy();
     expect(screen.getByText(/Head blocker holds locks on Orders/)).toBeTruthy();

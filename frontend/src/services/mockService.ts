@@ -6,7 +6,7 @@
  * between mock and real via `VITE_USE_MOCK` (defaults to true).
  */
 
-import { MOCK_CATALOG, MOCK_REPORT } from "./mockData";
+import { MOCK_CATALOG, MOCK_FLEET, MOCK_REPORT } from "./mockData";
 import { ApiError } from "./http";
 import type {
   ApprovalRequest,
@@ -14,6 +14,7 @@ import type {
   CreateInvestigationRequest,
   Credentials,
   CreateOrganizationRequest,
+  FleetSummary,
   HealthStatus,
   InvestigationResponse,
   InvestigationSummary,
@@ -233,6 +234,11 @@ export const mockServiceClient: ServiceClient = {
   },
   async downloadReportPdf(_investigationId: number): Promise<Blob> {
     return delay(new Blob([`%PDF-1.4\n%mock report for investigation ${_investigationId}\n`], { type: "application/pdf" }));
+  },
+
+  // Fleet (#49)
+  async getFleet(): Promise<FleetSummary> {
+    return delay(MOCK_FLEET);
   },
 
   // Orgs

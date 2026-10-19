@@ -14,6 +14,7 @@ import { Link, useParams } from "react-router-dom";
 import { ApiError, services } from "../services";
 import type { ReportPayload } from "../services/types";
 import { formatServerTarget } from "../lib/format";
+import { areaTitle } from "../lib/areas";
 
 type State =
   | { status: "loading" }
@@ -170,7 +171,7 @@ export function ReportPage() {
         {r.findings_by_area.map((area) => (
           <div key={area.area}>
             <h3>
-              {area.area}{" "}
+              {areaTitle(area.area)}{" "}
               <span className="chip" data-state={area.severity}>
                 (severity: {area.severity})
               </span>
@@ -187,6 +188,16 @@ export function ReportPage() {
                     <span className="chip" data-state={signal.severity}>
                       (severity: {signal.severity})
                     </span>{" "}
+                    {signal.database && (
+                      <span className="chip" data-state="ok" title="Affected database">
+                        db: {signal.database}
+                      </span>
+                    )}{" "}
+                    {signal.kind && (
+                      <span className="chip" title="Engine rule kind">
+                        {signal.kind}
+                      </span>
+                    )}{" "}
                     — {signal.description}
                   </li>
                 ))}

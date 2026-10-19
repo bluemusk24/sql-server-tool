@@ -9,6 +9,7 @@ import { request } from "./http";
 import { setToken, clearToken } from "./token";
 import type {
   ApprovalResponse,
+  FleetSummary,
   HealthStatus,
   InvestigationResponse,
   InvestigationSummary,
@@ -63,6 +64,9 @@ export const realServiceClient: ServiceClient = {
   // Reports
   getReportPayload: (id) => request<ReportPayload>(`/reports/${id}`),
   downloadReportPdf: (id) => request<Blob>(`/reports/${id}.pdf`, { binary: true }),
+
+  // Fleet (#49)
+  getFleet: () => request<FleetSummary>("/fleet"),
 
   // Orgs
   listOrganizations: () => request<Organization[]>("/orgs"),

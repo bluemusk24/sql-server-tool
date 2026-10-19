@@ -6,6 +6,7 @@
  * route tree mirrors the investigation lifecycle:
  *
  *   /                            → hub (list + new)
+ *   /fleet                       → fleet health across the org's servers
  *   /investigations/new          → connection & scope form
  *   /investigations/:id/approve  → approval gate
  *   /jobs/:jobId                 → run status
@@ -24,13 +25,14 @@ import { AuthProvider } from "./auth/AuthContext";
 import { RequireAuth } from "./auth/RequireAuth";
 import { ApprovalScreen } from "./pages/ApprovalScreen";
 import { ConnectionScopeForm } from "./pages/ConnectionScopeForm";
+import { FleetPage } from "./pages/FleetPage";
 import { JobStatusPage } from "./pages/JobStatusPage";
 import { LandingPage } from "./pages/LandingPage";
 import { LoginPage } from "./pages/LoginPage";
 import { ReportPage } from "./pages/ReportPage";
 
 /**
- * The header carries the product mark plus the two primary destinations.
+ * The header carries the product mark plus the primary destinations.
  * The nav is hidden on `/login`, where there is nothing yet to navigate
  * to (the session guard would only bounce back).
  */
@@ -49,6 +51,7 @@ function AppHeader() {
           <NavLink to="/" end>
             Queue
           </NavLink>
+          <NavLink to="/fleet">Fleet</NavLink>
           <NavLink to="/investigations/new">New</NavLink>
         </nav>
       )}
@@ -73,6 +76,7 @@ export function App() {
               path="/investigations/new"
               element={<ConnectionScopeForm />}
             />
+            <Route path="/fleet" element={<FleetPage />} />
             <Route
               path="/investigations/:id/approve"
               element={<ApprovalScreen />}

@@ -188,6 +188,10 @@ export interface Signal {
   title: string;
   description: string;
   evidence_ids: string[];
+  /** The finding's kind (engine rule), e.g. refresh_job_failure. */
+  kind?: string;
+  /** The database the finding is about, when it is database-scoped. */
+  database?: string | null;
 }
 
 export interface AreaFindings {
@@ -257,4 +261,51 @@ export interface Organization {
 export interface CreateOrganizationRequest {
   name: string;
   issuer: string;
+}
+
+// ── Fleet view (#49) ───────────────────────────────────────────────
+export interface FleetArea {
+  findings: number;
+  severity: Severity;
+}
+
+export interface FleetServer {
+  server_host: string;
+  server_port: number;
+  investigations: number;
+  last_investigation: string | null;
+  findings_by_severity: Record<Severity, number>;
+  total_findings: number;
+  refresh_findings: number;
+  areas: Record<string, FleetArea>;
+  latest_report_id: number | null;
+  latest_primary_cause: string;
+  latest_confidence_percent: number;
+  inconclusive: boolean;
+}
+
+export interface FleetFailure {
+  investigation_id: number;
+  server_host: string;
+  server_port: number;
+  area: string;
+  severity: Severity;
+  database: string | null;
+  title: string;
+  time: string | null;
+}
+
+export interface FleetTotals {
+  servers: number;
+  investigations: number;
+  findings: Record<Severity, number>;
+  refresh_findings: number;
+}
+
+export interface FleetSummary {
+  organization: string;
+  generated_at: string;
+  totals: FleetTotals;
+  servers: FleetServer[];
+  recent_failures: FleetFailure[];
 }

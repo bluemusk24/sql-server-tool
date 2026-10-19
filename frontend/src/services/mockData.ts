@@ -13,6 +13,7 @@ import type {
   Cause,
   DataSourceReport,
   EvidenceItem,
+  FleetSummary,
   Recommendation,
   ReportPayload,
   Signal,
@@ -157,6 +158,81 @@ export const MOCK_CATALOG: CatalogEntry[] = [
     min_permission: "VIEW SERVER STATE",
     read_only: true,
   },
+  // ── Database refresh & replication (the topic's headline area) ──
+  {
+    id: "refresh_job_failures",
+    key: "refresh_job_failures",
+    title: "Failed refresh / ETL job steps",
+    description:
+      "List failed SQL Agent steps for refresh, ETL, and SSIS-style jobs in the lookback window.",
+    purpose:
+      "Catch data-refresh pipelines (SSIS, PowerShell, loads) that failed within the window.",
+    category: "refresh",
+    issue_area: "refresh",
+    sql: "SELECT j.name AS job_name,\n       s.step_name,\n       s.step_id,\n       s.subsystem,\n       h.message\nFROM msdb.dbo.sysjobhistory h\nJOIN msdb.dbo.sysjobs j ON j.job_id = h.job_id\nJOIN msdb.dbo.sysjobsteps s\n  ON s.job_id = h.job_id AND s.step_id = h.step_id\nWHERE h.run_status = 0\n  AND h.step_id > 0\n  AND h.run_date >= CONVERT(\n        int, CONVERT(varchar(8),\n        DATEADD(hour, -1 * :lookback_hours, GETDATE()), 112))\n  AND (\n    s.subsystem IN ('SSIS', 'PowerShell', 'CmdExec')\n    OR j.name LIKE '%refresh%'\n    OR j.name LIKE '%etl%'\n    OR j.name LIKE '%load%'\n    OR j.name LIKE '%ssis%'\n    OR j.name LIKE '%package%'\n  );",
+    sql_text: "SELECT j.name AS job_name,\n       s.step_name,\n       s.step_id,\n       s.subsystem,\n       h.message\nFROM msdb.dbo.sysjobhistory h\nJOIN msdb.dbo.sysjobs j ON j.job_id = h.job_id\nJOIN msdb.dbo.sysjobsteps s\n  ON s.job_id = h.job_id AND s.step_id = h.step_id\nWHERE h.run_status = 0\n  AND h.step_id > 0\n  AND h.run_date >= CONVERT(\n        int, CONVERT(varchar(8),\n        DATEADD(hour, -1 * :lookback_hours, GETDATE()), 112))\n  AND (\n    s.subsystem IN ('SSIS', 'PowerShell', 'CmdExec')\n    OR j.name LIKE '%refresh%'\n    OR j.name LIKE '%etl%'\n    OR j.name LIKE '%load%'\n    OR j.name LIKE '%ssis%'\n    OR j.name LIKE '%package%'\n  );",
+    params: ["lookback_hours"],
+    requires_approval: true,
+    expected_impact: "Read-only; scans msdb job history.",
+    versions: ["2016", "2017", "2019", "2022"],
+    min_permission: "SELECT on msdb",
+    read_only: true,
+  },
+  {
+    id: "replication_latency",
+    key: "replication_latency",
+    title: "Replication delivery latency",
+    description:
+      "Measure how late each replication agent is delivering to its subscriber.",
+    purpose: "Detect stale subscriber copies (distribution agent latency).",
+    category: "refresh",
+    issue_area: "refresh",
+    sql: "SELECT p.name AS publication_name,\n       a.publisher_db,\n       a.subscriber_db,\n       a.name AS agent_name,\n       DATEDIFF(minute, a.last_delivery_time, GETUTCDATE())\n           AS latency_minutes\nFROM distribution.dbo.MSpublication_agents a\nJOIN distribution.dbo.MSpublications p ON p.pubid = a.pubid\nWHERE a.last_delivery_time IS NOT NULL;",
+    sql_text: "SELECT p.name AS publication_name,\n       a.publisher_db,\n       a.subscriber_db,\n       a.name AS agent_name,\n       DATEDIFF(minute, a.last_delivery_time, GETUTCDATE())\n           AS latency_minutes\nFROM distribution.dbo.MSpublication_agents a\nJOIN distribution.dbo.MSpublications p ON p.pubid = a.pubid\nWHERE a.last_delivery_time IS NOT NULL;",
+    params: [],
+    requires_approval: true,
+    expected_impact:
+      "Read-only; queries the distribution database (an honest gap if unavailable).",
+    versions: ["2016", "2017", "2019", "2022"],
+    min_permission: "SELECT on distribution",
+    read_only: true,
+  },
+  {
+    id: "log_shipping_lag",
+    key: "log_shipping_lag",
+    title: "Log shipping restore lag",
+    description: "Measure how late each log-shipping secondary is restoring.",
+    purpose: "Detect stale standby copies (restore lag).",
+    category: "refresh",
+    issue_area: "refresh",
+    sql: "SELECT primary_server,\n       primary_database,\n       secondary_database,\n       last_restored_time,\n       COALESCE(\n           DATEDIFF(minute, last_restored_time, GETUTCDATE()),\n           99999) AS restore_lag_minutes\nFROM msdb.dbo.log_shipping_monitor_secondary;",
+    sql_text: "SELECT primary_server,\n       primary_database,\n       secondary_database,\n       last_restored_time,\n       COALESCE(\n           DATEDIFF(minute, last_restored_time, GETUTCDATE()),\n           99999) AS restore_lag_minutes\nFROM msdb.dbo.log_shipping_monitor_secondary;",
+    params: [],
+    requires_approval: true,
+    expected_impact: "Read-only; reads msdb monitor tables.",
+    versions: ["2016", "2017", "2019", "2022"],
+    min_permission: "SELECT on msdb",
+    read_only: true,
+  },
+  {
+    id: "backup_freshness",
+    key: "backup_freshness",
+    title: "Backup freshness per database",
+    description:
+      "Report the last full, differential, and log backup per database.",
+    purpose:
+      "Flag databases whose newest full backup is missing or older than 7 days.",
+    category: "refresh",
+    issue_area: "refresh",
+    sql: "SELECT d.name AS database_name,\n       MAX(CASE WHEN b.type = 'D' THEN b.backup_finish_date END)\n           AS last_full,\n       MAX(CASE WHEN b.type = 'I' THEN b.backup_finish_date END)\n           AS last_diff,\n       MAX(CASE WHEN b.type = 'L' THEN b.backup_finish_date END)\n           AS last_log\nFROM sys.databases d\nLEFT JOIN msdb.dbo.backupset b ON b.database_name = d.name\nGROUP BY d.name;",
+    sql_text: "SELECT d.name AS database_name,\n       MAX(CASE WHEN b.type = 'D' THEN b.backup_finish_date END)\n           AS last_full,\n       MAX(CASE WHEN b.type = 'I' THEN b.backup_finish_date END)\n           AS last_diff,\n       MAX(CASE WHEN b.type = 'L' THEN b.backup_finish_date END)\n           AS last_log\nFROM sys.databases d\nLEFT JOIN msdb.dbo.backupset b ON b.database_name = d.name\nGROUP BY d.name;",
+    params: [],
+    requires_approval: true,
+    expected_impact: "Read-only; scans msdb backup history.",
+    versions: ["2016", "2017", "2019", "2022"],
+    min_permission: "SELECT on msdb",
+    read_only: true,
+  },
 ];
 
 // ── Report payload ──────────────────────────────────────────────────
@@ -170,6 +246,10 @@ const SOURCES: DataSourceReport[] = [
   { source_id: "sql_server_errors", title: "SQL Server error log", category: "agent_jobs", issue_area: "errors", status: "collected", checked: true, note: "" },
   { source_id: "database_status", title: "Database availability status", category: "availability", issue_area: "availability", status: "collected", checked: true, note: "" },
   { source_id: "storage_pressure", title: "Storage free-space percentage", category: "availability", issue_area: "storage", status: "unavailable", checked: false, note: "master_files read denied" },
+  { source_id: "refresh_job_failures", title: "Failed refresh / ETL job steps", category: "refresh", issue_area: "refresh", status: "collected", checked: true, note: "" },
+  { source_id: "replication_latency", title: "Replication delivery latency", category: "refresh", issue_area: "refresh", status: "unavailable", checked: false, note: "query failed: no permission on distribution" },
+  { source_id: "log_shipping_lag", title: "Log shipping restore lag", category: "refresh", issue_area: "refresh", status: "collected", checked: true, note: "" },
+  { source_id: "backup_freshness", title: "Backup freshness per database", category: "refresh", issue_area: "refresh", status: "collected", checked: true, note: "" },
 ];
 
 const SIGNALS: Signal[] = [
@@ -205,6 +285,28 @@ const SIGNALS: Signal[] = [
     description: "Job failed with exit code 1 on consecutive runs.",
     evidence_ids: ["failed_agent_jobs"],
   },
+  {
+    rule_id: "refresh_job_failures:refresh_job_failure",
+    area: "refresh",
+    severity: "high",
+    kind: "refresh_job_failure",
+    title:
+      "Refresh job 'DW Refresh' failed at step 'Load FactSales' [SSIS] (2 failed runs)",
+    description:
+      'Error: The data flow task "Load FactSales" failed. The component reported the following error code: 0xC020801C.',
+    evidence_ids: ["refresh_job_failures-0", "refresh_job_failures-1"],
+  },
+  {
+    rule_id: "backup_freshness:stale_backup",
+    area: "refresh",
+    severity: "medium",
+    kind: "stale_backup",
+    database: "Sales",
+    title: "Last full backup of Sales is 18.0 days old",
+    description:
+      "Backup freshness is outside the 7-day expectation — recovery objectives are at risk.",
+    evidence_ids: ["backup_freshness-0"],
+  },
 ];
 
 const EVIDENCE: EvidenceItem[] = [
@@ -212,9 +314,13 @@ const EVIDENCE: EvidenceItem[] = [
   { evidence_id: "blocking_now", area: "blocking", timestamp: "2026-10-12T14:28:00Z", description: "Head blocker session 57, wait type LCK_M_X, wait_time 45000ms", details: { blocking_session_id: 57 } },
   { evidence_id: "top_queries", area: "queries", timestamp: "2026-10-12T14:25:00Z", description: "Top query: 12 840 ms CPU, 1 240 000 logical reads", details: { cpu_ms: 12840, reads: 1240000 } },
   { evidence_id: "failed_agent_jobs", area: "agent_jobs", timestamp: "2026-10-12T13:00:00Z", description: "Job 'NightlyBackup' failed — exit code 1", details: { job_name: "NightlyBackup", run_status: 0 } },
+  { evidence_id: "refresh_job_failures-0", area: "refresh", timestamp: "2026-10-12T14:05:00Z", description: "Failed refresh / ETL job steps", details: { job_name: "DW Refresh", step_name: "Load FactSales", subsystem: "SSIS", run_status: 0 } },
+  { evidence_id: "refresh_job_failures-1", area: "refresh", timestamp: "2026-10-12T12:05:00Z", description: "Failed refresh / ETL job steps", details: { job_name: "DW Refresh", step_name: "Load FactSales", subsystem: "SSIS", run_status: 0 } },
+  { evidence_id: "backup_freshness-0", area: "refresh", timestamp: "2026-10-12T14:06:00Z", description: "Backup freshness per database", details: { database_name: "Sales", last_full: "2026-10-01T02:00:00+00:00" } },
 ];
 
 const FINDINGS_BY_AREA: AreaFindings[] = [
+  { area: "refresh", severity: "high", confidence_percent: 78, confidence_label: "high", signal_count: 2, findings: [SIGNALS[4], SIGNALS[5]], evidence: [EVIDENCE[4], EVIDENCE[5], EVIDENCE[6]] },
   { area: "cpu", severity: "high", confidence_percent: 85, confidence_label: "high", signal_count: 1, findings: [SIGNALS[0]], evidence: [EVIDENCE[0]] },
   { area: "blocking", severity: "high", confidence_percent: 90, confidence_label: "high", signal_count: 1, findings: [SIGNALS[1]], evidence: [EVIDENCE[1]] },
   { area: "queries", severity: "medium", confidence_percent: 70, confidence_label: "medium", signal_count: 1, findings: [SIGNALS[2]], evidence: [EVIDENCE[2]] },
@@ -226,29 +332,44 @@ const FINDINGS_BY_AREA: AreaFindings[] = [
 ];
 
 const PRIMARY_CAUSE: Cause = {
-  title: "CPU saturation caused by ad-hoc query storm",
+  title: "Data refresh / replication failure",
   description:
-    "A single ad-hoc query consumed 45% of total CPU and generated a blocking chain. The scheduler runnable-task count confirms sustained pressure.",
-  confidence_percent: 85,
+    "The refresh path is broken: job 'DW Refresh' failed twice on its SSIS load step, and Sales' last full backup is 18 days old. Affected database(s): Sales.",
+  confidence_percent: 78,
   confidence_label: "high",
 };
 
 const ALTERNATIVES: Cause[] = [
   {
-    title: "Failed backup job causing resource contention",
-    description: "The NightlyBackup job failure may have triggered a retry storm.",
-    confidence_percent: 35,
-    confidence_label: "low",
+    title: "Blocking chain preventing query completion",
+    description:
+      "1 signal(s) in Blocking. A head-blocker session is holding locks long enough to queue other requests behind it.",
+    confidence_percent: 62,
+    confidence_label: "medium",
   },
   {
-    title: "Storage pressure leading to I/O waits",
-    description: "Storage data was unavailable; cannot rule this out.",
-    confidence_percent: 15,
-    confidence_label: "low",
+    title: "CPU / scheduler saturation",
+    description:
+      "1 signal(s) in High CPU. SQL Server schedulers have runnable tasks queued — the instance is CPU-bound.",
+    confidence_percent: 62,
+    confidence_label: "medium",
   },
 ];
 
 const RECOMMENDATIONS: Recommendation[] = [
+  {
+    area: "refresh",
+    validation_checks: [
+      "Read the failing Agent step's error text: SELECT j.name, s.step_name, s.subsystem, h.message FROM msdb.dbo.sysjobhistory h JOIN msdb.dbo.sysjobs j ON j.job_id = h.job_id JOIN msdb.dbo.sysjobsteps s ON s.job_id = h.job_id AND s.step_id = h.step_id WHERE h.run_status = 0 AND h.step_id > 0 ORDER BY h.run_date DESC, h.run_time DESC;",
+      "Check backup freshness per database: SELECT database_name, MAX(backup_finish_date) FROM msdb.dbo.backupset GROUP BY database_name;",
+    ],
+    remediation: [
+      { step: "Fix the underlying data/dependency error named in the failing step, then re-run the job step from SQL Agent.", draft_sql: null, disclaimer: "recommendation only, execute at the DBA's discretion" },
+      { step: "For SSIS/package steps, verify the package path, stored credentials, and the server's memory grants; check the SSISDB execution report for the failing task.", draft_sql: null, disclaimer: "recommendation only, execute at the DBA's discretion" },
+      { step: "For stale/missing backups: re-run the missing backup for the affected database (match the recovery model) after confirming destination space.", draft_sql: "-- review before running (example)\n-- BACKUP DATABASE [Sales] TO DISK = N'\\\\backup\\share\\Sales.bak' WITH INIT, COMPRESSION;", disclaimer: "recommendation only, execute at the DBA's discretion" },
+    ],
+    disclaimer: "recommendation only, execute at the DBA's discretion",
+  },
   {
     area: "cpu",
     validation_checks: [
@@ -284,17 +405,114 @@ export const MOCK_REPORT: ReportPayload = {
   findings_by_area: FINDINGS_BY_AREA,
   primary_cause: PRIMARY_CAUSE,
   alternatives: ALTERNATIVES,
-  confidence_percent: 85,
+  confidence_percent: 78,
   confidence_label: "high",
   severity: "high",
   rationale:
-    "Sustained CPU saturation on scheduler 2, a top ad-hoc query, and a blocking chain from a long-running transaction point to a query-driven CPU incident.",
+    "Live collection: 11 of 12 sources collected; 1 unavailable (see coverage gaps). 4 signal(s) across 4 issue area(s). Primary cause: Database refresh & replication at 78% confidence (high).",
   inconclusive: false,
   coverage_gaps: [
     { source_id: "storage_pressure", issue_area: "storage", status: "unavailable", note: "master_files read denied" },
+    { source_id: "replication_latency", issue_area: "refresh", status: "unavailable", note: "query failed: no permission on distribution" },
   ],
   recommendations: RECOMMENDATIONS,
   validation_checks: RECOMMENDATIONS.flatMap((r) => r.validation_checks),
   remediation: RECOMMENDATIONS.flatMap((r) => r.remediation),
   read_only_disclaimer: "recommendation only, execute at the DBA's discretion",
+};
+
+// ── Fleet view (#49) ───────────────────────────────────────────────
+
+export const MOCK_FLEET: FleetSummary = {
+  organization: "Acme Corp",
+  generated_at: "2026-10-12T14:35:00Z",
+  totals: {
+    servers: 3,
+    investigations: 5,
+    findings: { high: 3, medium: 2, low: 1 },
+    refresh_findings: 2,
+  },
+  servers: [
+    {
+      server_host: "sql01.acme.example",
+      server_port: 1433,
+      investigations: 2,
+      last_investigation: "2026-10-12T14:30:00Z",
+      findings_by_severity: { high: 1, medium: 1, low: 0 },
+      total_findings: 2,
+      refresh_findings: 2,
+      areas: {
+        refresh: { findings: 2, severity: "high" },
+        agent_jobs: { findings: 1, severity: "medium" },
+      },
+      latest_report_id: 42,
+      latest_primary_cause: "Data refresh / replication failure",
+      latest_confidence_percent: 78,
+      inconclusive: false,
+    },
+    {
+      server_host: "sql02.acme.example",
+      server_port: 1433,
+      investigations: 2,
+      last_investigation: "2026-10-11T09:10:00Z",
+      findings_by_severity: { high: 2, medium: 0, low: 1 },
+      total_findings: 3,
+      refresh_findings: 0,
+      areas: {
+        blocking: { findings: 2, severity: "high" },
+        queries: { findings: 1, severity: "low" },
+      },
+      latest_report_id: 41,
+      latest_primary_cause: "Blocking chain preventing query completion",
+      latest_confidence_percent: 71,
+      inconclusive: false,
+    },
+    {
+      server_host: "sql-dr.acme.example",
+      server_port: 1433,
+      investigations: 1,
+      last_investigation: "2026-10-10T18:45:00Z",
+      findings_by_severity: { high: 0, medium: 1, low: 0 },
+      total_findings: 1,
+      refresh_findings: 0,
+      areas: { agent_jobs: { findings: 1, severity: "medium" } },
+      latest_report_id: 39,
+      latest_primary_cause: "No primary cause determined",
+      latest_confidence_percent: 0,
+      inconclusive: true,
+    },
+  ],
+  recent_failures: [
+    {
+      investigation_id: 42,
+      server_host: "sql01.acme.example",
+      server_port: 1433,
+      area: "refresh",
+      severity: "high",
+      database: null,
+      title:
+        "Refresh job 'DW Refresh' failed at step 'Load FactSales' [SSIS] (2 failed runs)",
+      time: "2026-10-12T14:30:00Z",
+    },
+    {
+      investigation_id: 42,
+      server_host: "sql01.acme.example",
+      server_port: 1433,
+      area: "refresh",
+      severity: "medium",
+      database: "Sales",
+      title: "Last full backup of Sales is 18.0 days old",
+      time: "2026-10-12T14:30:00Z",
+    },
+    {
+      investigation_id: 41,
+      server_host: "sql02.acme.example",
+      server_port: 1433,
+      area: "blocking",
+      severity: "high",
+      database: null,
+      title: "Blocking chain: session 57 blocking for 7.5 min (LCK_M_X)",
+      time: "2026-10-11T09:10:00Z",
+    },
+  ],
 };
