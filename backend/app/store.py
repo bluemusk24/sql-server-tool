@@ -373,6 +373,15 @@ class DatabaseStore:
         databases: list[str] | None,
         lookback_hours: int,
     ) -> Investigation:
+        # Older clients (and the SSMS export) sent the scope as a
+        # comma-joined string; accept both shapes and store a clean
+        # list of names.
+        if databases is not None:
+            databases = [
+                name.strip()
+                for name in databases.strip().split(",")
+                if name.strip()
+            ]
         row = orm.InvestigationRow(
             status="draft",
             server_host=server_host,
