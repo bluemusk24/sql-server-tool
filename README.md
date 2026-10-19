@@ -175,8 +175,11 @@ CORS_ALLOW_ORIGINS="https://my-app.vercel.app" uv run uvicorn app.main:app --por
 
 ### Live collection
 
-A run started **without** credentials produces the seeded demo report. A
-run started **with** credentials collects real evidence from the target
+A run started **without** credentials produces the seeded demo report: the
+synthetic pipeline generates clearly-labeled sample evidence rows and runs
+them through the **same analysis engine** the live path uses, so the demo
+demonstrates the product's real rules, correlator, and guidance. A run
+started **with** credentials collects real evidence from the target
 instance through the ODBC Driver 18 (#31):
 
 ```bash
@@ -203,6 +206,34 @@ curl -X POST http://localhost:8000/investigations/1/run \
 
 The backend Docker image ships the driver, so a deployed instance can
 collect live evidence as soon as a server is reachable.
+
+### Analysis layer (findings → cause → guidance)
+
+Collected evidence runs through `backend/app/analysis.py` — the analysis
+topic's core (#49):
+
+- **Findings engine:** fixed-threshold rules per catalog source (any
+  blocking, every deadlock, top-5 queries over 10s CPU, scheduler
+  saturation, every failed Agent job / error-log entry, non-ONLINE
+  databases, <10% free storage, plus the refresh rules below). Findings
+  name the affected database where the evidence does.
+- **Refresh & replication (5th issue area):** failed refresh/ETL/SSIS job
+  steps, replication delivery latency (≥10/30 min), log-shipping restore
+  lag (≥15/60 min), and backup freshness (missing full backup, or >7 days,
+  high beyond 14).
+- **Cause correlator:** one primary probable cause plus ranked
+  alternatives, confidence as % and low/medium/high, **inconclusive**
+  below 50%; coverage gaps reduce confidence. Deterministic and auditable.
+- **Guidance:** validation checks (read-only SQL), step-by-step
+  remediation, and draft SQL for DBA review. The tool reports and
+  recommends only — it never executes anything.
+- **Fleet view:** `GET /fleet` aggregates the *organization's own* stored
+  reports — findings by severity per server, per-area breakdown with
+  refresh failures highlighted, latest primary cause per server, and
+  recent failures (UI at `/fleet`). Never crosses organizations (spec §6).
+
+Unavailable sources remain explicit coverage gaps and can never become
+findings (spec §3.8).
 
 ### Run
 
@@ -240,7 +271,7 @@ restarts, so your data is preserved):
 | ---- | ----- |
 | Organization | `Acme Corp` (issuer `https://idp.acme.example`) |
 | Users | `dba` / `dba-password`, `admin` / `admin-password` |
-| Catalog | 8 read-only diagnostic queries |
+| Catalog | 12 read-only diagnostic queries (five issue areas, including database refresh & replication) |
 | Investigation | id `1`, status `completed`, with a ready report |
 
 ### Try the API
@@ -265,6 +296,9 @@ curl -s http://localhost:8000/investigations -H "Authorization: Bearer $TOKEN"
 # 4. Fetch the seeded report and its PDF
 curl -s http://localhost:8000/reports/1 -H "Authorization: Bearer $TOKEN"
 curl -s http://localhost:8000/reports/1.pdf -H "Authorization: Bearer $TOKEN" -o report.pdf
+
+# 5. Fleet health across this organization's servers
+curl -s http://localhost:8000/fleet -H "Authorization: Bearer $TOKEN"
 ```
 
 ### Authentication
@@ -296,6 +330,7 @@ All endpoints are documented in [`openapi.yaml`](openapi.yaml). Summary:
 | POST | `/jobs/{job_id}/cancel` | yes | Cancel a queued/running job |
 | GET | `/reports/{id}` | yes | Report payload (JSON) |
 | GET | `/reports/{id}.pdf` | yes | Report as a downloadable PDF |
+| GET | `/fleet` | yes | Org-scoped fleet health (findings per server) |
 | GET | `/orgs` | yes | List organizations |
 | POST | `/orgs` | yes | Create an organization |
 | DELETE | `/orgs/{id}` | yes | Deprovision an organization |
@@ -324,6 +359,7 @@ backend/app/
   db_models.py       # SQLAlchemy ORM tables (the schema)
   db.py              # Engine/session wiring from $DATABASE_URL
   store.py           # DatabaseStore (the persistence layer) + seed data
+  analysis.py        # Findings engine, cause correlator, guidance KB (#49)
   security.py        # Password hashing primitives (no dependencies)
   auth.py            # Bearer-token guard
   pdf.py             # Dependency-free PDF renderer for report downloads
@@ -335,6 +371,7 @@ backend/app/
     investigations.py# investigations, approvals, run
     jobs.py          # job status + cancel
     reports.py       # report JSON + PDF
+    fleet.py         # org-scoped fleet health (#49)
     orgs.py          # organizations
 backend/alembic/     # Alembic migrations (versions/)
 backend/tests/       # pytest suite (one module per resource)
@@ -412,7 +449,7 @@ make mock       # or: cd frontend && npm run dev
 ```
 
 With `VITE_API_BASE_URL` empty, the Vite dev server proxies `/health`,
-`/auth`, `/investigations`, `/jobs`, `/reports`, and `/orgs` to
+`/auth`, `/investigations`, `/jobs`, `/reports`, `/fleet`, and `/orgs` to
 `http://localhost:8000` (see `frontend/vite.config.ts`), so no CORS
 configuration is needed in dev.
 
@@ -469,6 +506,7 @@ frontend/src/
     ApprovalScreen.tsx   # approve/reject catalog queries, start the run
     JobStatusPage.tsx    # run status (polls until terminal)
     ReportPage.tsx       # report dashboard + PDF download
+    FleetPage.tsx        # fleet health across the org's servers (#49)
   components/        # Reusable UI components
     HealthStatus.tsx         # API health indicator
     InvestigationList.tsx    # shared-store investigation list

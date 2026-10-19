@@ -1,4 +1,4 @@
-"""Deterministic synthetic evidence for the demo pipeline (#26, #50).
+"""Deterministic synthetic evidence for the demo pipeline (#26, #49).
 
 Generates realistic-shaped *evidence rows* per catalog source — then
 runs the very same analysis engine (``app.analysis``) the live path
@@ -252,7 +252,7 @@ def generate_synthetic_report(
     dashboard, PDF, tests — works unchanged. Evidence rows are fed
     through the real analysis engine, so the demo findings, primary
     cause, confidence, and guidance all come from the product's actual
-    rules (#50) — over clearly-labeled sample data (#26).
+    rules (#49) — over clearly-labeled sample data (#26).
     """
     from app.store import build_demo_report  # late import: no cycle
 

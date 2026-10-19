@@ -709,7 +709,7 @@ class DatabaseStore:
         self.session.flush()
         return report
 
-    # ── Fleet view (#50) ─────────────────────────────────────────────
+    # ── Fleet view (#49) ─────────────────────────────────────────────
     def fleet_summary(self, organization: str) -> dict[str, Any]:
         """Failures per server across this organization's investigations.
 
@@ -890,7 +890,7 @@ def build_demo_report(inv: Investigation, organization: str) -> dict[str, Any]:
 def apply_collection(
     report: dict[str, Any], collection: list[dict[str, Any]]
 ) -> dict[str, Any]:
-    """Blend real live-collection outcomes into the report (#31, #50).
+    """Blend real live-collection outcomes into the report (#31, #49).
 
     Sources carry their true status; anything not collected becomes an
     explicit coverage gap (spec §3.8 — never claim unavailable evidence

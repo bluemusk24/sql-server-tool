@@ -1,6 +1,6 @@
 # SQL Server Diagnostic Assistant — POC Scope
 
-**Status:** Scope draft, updated 2026-10-08
+**Status:** Scope draft, updated 2026-10-19
 
 ## 1. Objective
 
@@ -19,11 +19,14 @@ Build an on-demand diagnostic assistant that reduces the time DBAs spend initial
 - **Instance input:** The DBA enters the server name and connection details for each investigation. No host allowlist; allow any reachable SQL Server subject to valid credentials.
 - **Investigation scope:** Whole instance by default, with an option to select specific databases.
 - **Lookback:** DBA selects a relative window up to 24 hours; suggested choices are 1, 4, 8, or 24 hours.
-- **Issue coverage:** Every investigation checks all four areas, without prioritization:
+- **Issue coverage:** Every investigation checks all five areas, without prioritization:
   1. Blocking and deadlocks
   2. Slow queries and high CPU
   3. Failed SQL Agent jobs and SQL Server errors
   4. Database availability and storage pressure
+  5. Database refresh and replication failures (failed refresh/ETL job
+     steps, replication latency, log-shipping restore lag, and backup
+     freshness per database)
 - **Data scope:** SQL Server data only. No Windows host logs or performance counters. Skip Query Store.
 
 ## 3. Investigation workflow
@@ -39,18 +42,19 @@ Build an on-demand diagnostic assistant that reduces the time DBAs spend initial
 
 ## 4. Diagnostic evidence and initial rule behavior
 
-Collect available SQL Server context, including error log entries and diagnostic events, SQL Agent job history, blocking/deadlocks, query activity, waits, database status, storage indicators, and recent changes available through SQL Server data.
+Collect available SQL Server context, including error log entries and diagnostic events, SQL Agent job history, blocking/deadlocks, query activity, waits, database status, storage indicators, refresh/ETL job steps, replication and log-shipping delivery lag, backup history, and recent changes available through SQL Server data.
 
 Initial behavior agreed for the POC:
 
 - **Blocking:** Flag any blocking event detected. On-demand runs can inspect current blocking; historical blocking is available only when SQL Server has retained evidence. Clearly flag gaps.
-- **Deadlocks:** Flag every deadlock found in the selected window, where retained evidence is available.
-- **Slow/resource-intensive queries:** Report the top 5 resource-consuming queries per available resource category, regardless of runtime.
-- **High CPU:** Use SQL Server CPU and scheduler signals; host counters are out of scope.
+- **Deadlocks:** Flag every deadlock found in the selected window, where retained evidence is available; highlight repeated deadlocks.
+- **Slow/resource-intensive queries:** Report the top 5 resource-consuming queries per available resource category, regardless of runtime. Flag as findings those consuming at least 10 seconds of CPU in the window.
+- **High CPU:** Use SQL Server CPU and scheduler signals; host counters are out of scope. Flag schedulers with queued runnable tasks.
 - **SQL Agent:** Flag every failed job in the selected window; highlight repeated or critical failures.
 - **SQL Server errors:** Flag all errors found in the selected window.
 - **Database availability:** Flag any database that is offline, suspect, or otherwise unavailable.
 - **Storage pressure:** Start with less than 10% free space and use other available SQL Server indicators; finalize exact indicators during implementation.
+- **Database refresh and replication:** Flag failed refresh/ETL/SSIS job steps in the window; flag replication delivery latency at 10 minutes (medium) and 30 minutes (high); flag log-shipping restore lag at 15 minutes (medium) and 60 minutes (high); flag databases whose newest full backup is missing (high) or older than 7 days (medium, high beyond 14 days).
 - **Extended Events:** Per candidate instance, determine whether existing Extended Events data is available and approved to read. Do not create or change sessions.
 - **Thresholds:** Use the same built-in thresholds across instances; DBAs will not tune thresholds during the POC. Use fixed thresholds and trends within the current investigation window only. Do not use metrics from earlier investigations to build baselines.
 
@@ -58,13 +62,28 @@ Initial behavior agreed for the POC:
 
 - Start with built-in diagnostic rules; no approved runbooks or known-issue records are available initially.
 - AI correlates rule signals and SQL Server evidence to summarize the likely cause. Raw SQL text and server/database names may be used only within the organization-approved environment.
+- **Implementation status (analysis layer):** correlation ships as a
+  deterministic, auditable rules-plus-correlator engine
+  (`app.analysis`) — fixed thresholds produce findings, a ranker picks
+  one primary cause with ranked alternatives and a confidence, and a
+  built-in knowledge base supplies validation checks and remediation
+  (with draft SQL). It reports and recommends only. An optional LLM
+  summarizer may be layered behind a configuration gate later; it
+  requires an API key (cost) and per-organization data approval, and it
+  must not change the report contract.
 - Show one primary probable cause plus ranked alternatives.
 - Show confidence as both a percentage and low/medium/high.
-- Mark a result **inconclusive** when confidence is below 50% or evidence quality is insufficient; still show possible causes as low-confidence alternatives.
+- Mark a result **inconclusive** when confidence is below 50% or evidence quality is insufficient; still show possible causes as low-confidence alternatives. Coverage gaps reduce confidence.
 - Use high/medium/low severity labels.
 - Include supporting evidence, recommended validation checks, and remediation guidance. Provide both step-by-step actions and draft SQL commands for DBA review.
 - The tool reports and recommends only. It never executes remediation or makes production changes.
 - Do not compare investigations with previous cases. Historical incident records may be used for offline POC evaluation only.
+- **Fleet view (within an organization only):** an aggregate view over
+  the organization's own stored reports — findings by severity per
+  server, per-area breakdown with refresh failures highlighted, latest
+  primary cause per server, and recent failures. Cross-organization
+  comparison remains forbidden (§6); the fleet view never crosses the
+  organization boundary.
 
 ## 6. Access, deployment, and data handling
 
@@ -83,7 +102,7 @@ Initial behavior agreed for the POC:
 
 - Retain full evidence, including query text and raw diagnostic results, plus summaries and findings for 7 days.
 - Credentials are excluded from stored data.
-- Do not compare new findings with previous investigation records; history is retained for records and approved evaluation use only.
+- Do not compare new findings with previous investigation records; history is retained for records and approved evaluation use only. The single exception is the organization's own fleet view (§5): aggregate counts, severities, and latest causes across that organization's retained investigations — never across organizations, and never case-by-case matching against historical incidents.
 
 ## 8. Dashboard and incident report
 
@@ -95,6 +114,11 @@ Show summaries and raw diagnostic results, with evidence accessible from the rep
 - Primary probable cause and ranked alternatives, including an inconclusive status where appropriate
 - Missing/unavailable evidence and resulting coverage gaps
 - Recommended validation checks and remediation guidance, including draft SQL for DBA review
+
+Include a fleet view across the organization's servers: findings by
+severity per server, per-area breakdown (refresh failures highlighted),
+the latest primary cause and confidence per server, and the most recent
+high/medium failures, each linked to its report.
 
 Allow DBAs to download the incident report as PDF.
 
@@ -118,9 +142,21 @@ Target reduction in initial diagnosis time from approximately 60 minutes to 10�
 
 ### To define during implementation
 
-- Exact read-only diagnostic query catalog and minimum permissions by SQL Server version/deployment.
-- Exact storage-pressure indicators and thresholds beyond the initial 10% free-space flag.
-- SQL CPU/scheduler rules and the final interpretation of expected query impact.
+- Exact read-only diagnostic query catalog and minimum permissions by SQL Server version/deployment. **Status:** initial catalog shipped — 12 approved, read-only sources across the five issue areas; permissions-per-version still to be confirmed during candidate selection.
+- Exact storage-pressure indicators and thresholds beyond the initial 10% free-space flag. **Status:** 10% plus a 3%/512 MB high-severity band shipped; revisit after candidate feedback.
+- SQL CPU/scheduler rules and the final interpretation of expected query impact. **Status:** scheduler runnable-task rule shipped.
 - Repository schema, per-organization database provisioning, audit schema, and retention cleanup.
-- How confidence percentages are calibrated and how the 80% accuracy gate is computed.
+- How confidence percentages are calibrated and how the 80% accuracy gate is computed. **Status:** a deterministic first pass ships (severity base, corroboration bonus, coverage-gap penalty, inconclusive below 50%); recalibrate against the evaluation set.
 - PDF report layout and dashboard details.
+
+### Implemented for the analysis topic (#49)
+
+- Findings engine over collected evidence (fixed §4 thresholds), the
+  cause correlator (primary + ranked alternatives + confidence +
+  inconclusive), and the guidance knowledge base (validation checks,
+  remediation steps, draft SQL) — `app/analysis.py`.
+- Database refresh & replication as the fifth issue area, with
+  refresh job-step, replication latency, log-shipping lag, and backup
+  freshness sources and rules.
+- Org-scoped fleet view (`GET /fleet` + `/fleet` page) aggregating
+  findings, refresh failures, and latest causes per server.

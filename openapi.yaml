@@ -32,6 +32,8 @@ tags:
     description: Background diagnostic run lifecycle
   - name: reports
     description: Incident report payload and PDF
+  - name: fleet
+    description: Org-scoped fleet health across the organization's servers
   - name: orgs
     description: Organization management
 
@@ -440,6 +442,29 @@ paths:
           description: Not found
         "500":
           description: Render failed
+
+# ── Fleet ───────────────────────────────────────────────────────────
+  /fleet:
+    get:
+      tags: [fleet]
+      summary: Fleet health across the organization's servers
+      description: |
+        Aggregates this organization's stored reports: findings by
+        severity per server, per-area breakdown with refresh failures
+        highlighted, latest primary cause per server, and the most
+        recent high/medium failures. Scoped to the caller's
+        organization — never cross-organization (spec §6).
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Fleet summary for the caller's organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FleetSummary"
+        "401":
+          description: Unauthenticated
 
 # ── Orgs ─────────────────────────────────────────────────────────────
   /orgs:
@@ -918,6 +943,117 @@ components:
         description: { type: string }
         confidence_percent: { type: integer, minimum: 0, maximum: 100 }
         confidence_label: { type: string, enum: [low, medium, high] }
+
+    FleetArea:
+      type: object
+      required: [findings, severity]
+      properties:
+        findings: { type: integer, minimum: 0 }
+        severity:
+          type: string
+          enum: [none, low, medium, high]
+
+    FleetServer:
+      type: object
+      required:
+        - server_host
+        - server_port
+        - investigations
+        - last_investigation
+        - findings_by_severity
+        - total_findings
+        - refresh_findings
+        - areas
+        - latest_report_id
+        - latest_primary_cause
+        - latest_confidence_percent
+        - inconclusive
+      properties:
+        server_host: { type: string }
+        server_port: { type: integer }
+        investigations: { type: integer, minimum: 0 }
+        last_investigation:
+          type: string
+          nullable: true
+        findings_by_severity:
+          type: object
+          properties:
+            high: { type: integer, minimum: 0 }
+            medium: { type: integer, minimum: 0 }
+            low: { type: integer, minimum: 0 }
+        total_findings: { type: integer, minimum: 0 }
+        refresh_findings: { type: integer, minimum: 0 }
+        areas:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/FleetArea"
+        latest_report_id:
+          type: integer
+          nullable: true
+        latest_primary_cause: { type: string }
+        latest_confidence_percent: { type: integer, minimum: 0, maximum: 100 }
+        inconclusive: { type: boolean }
+
+    FleetFailure:
+      type: object
+      required:
+        - investigation_id
+        - server_host
+        - server_port
+        - area
+        - severity
+        - database
+        - title
+        - time
+      properties:
+        investigation_id: { type: integer }
+        server_host: { type: string }
+        server_port: { type: integer }
+        area: { type: string }
+        severity: { type: string, enum: [medium, high] }
+        database:
+          type: string
+          nullable: true
+        title: { type: string }
+        time:
+          type: string
+          nullable: true
+
+    FleetTotals:
+      type: object
+      required: [servers, investigations, findings, refresh_findings]
+      properties:
+        servers: { type: integer, minimum: 0 }
+        investigations: { type: integer, minimum: 0 }
+        findings:
+          type: object
+          properties:
+            high: { type: integer, minimum: 0 }
+            medium: { type: integer, minimum: 0 }
+            low: { type: integer, minimum: 0 }
+        refresh_findings: { type: integer, minimum: 0 }
+
+    FleetSummary:
+      type: object
+      required:
+        - organization
+        - generated_at
+        - totals
+        - servers
+        - recent_failures
+      properties:
+        organization: { type: string }
+        generated_at: { type: string }
+        totals:
+          $ref: "#/components/schemas/FleetTotals"
+        servers:
+          type: array
+          items:
+            $ref: "#/components/schemas/FleetServer"
+        recent_failures:
+          type: array
+          items:
+            $ref: "#/components/schemas/FleetFailure"
 
     Organization:
       type: object

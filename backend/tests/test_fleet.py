@@ -1,4 +1,4 @@
-"""Tests for the org-scoped fleet endpoint (#50).
+"""Tests for the org-scoped fleet endpoint (#49).
 
 The multi-firm view: which of *this organization's* servers are
 failing, in which areas, and are refresh failures among them — with

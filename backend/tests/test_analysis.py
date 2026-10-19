@@ -1,4 +1,4 @@
-"""Tests for the findings engine, cause correlator, and guidance (#50).
+"""Tests for the findings engine, cause correlator, and guidance (#49).
 
 The analysis layer is the product's core promise: turn collected
 evidence into findings, a primary probable cause with a confidence,
