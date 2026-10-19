@@ -92,8 +92,14 @@ every ~6-9 minutes (health checks failed during each reboot's ~74 s
 Grafana start, producing Render "Instance failed" events). The
 collector still *accepts* traces so client exporters never retry-storm,
 but discards them (file exporter → `/dev/null`); dashboard and
-alerting depend on Prometheus alone. The local compose stack keeps the
-full Loki + Tempo for exploration.
+alerting depend on Prometheus alone. Tempo's removal was not the whole
+fix: Go's default GC lets each heap double before reclaiming, and
+Grafana alone drifted to ~430 MB RSS within an hour, so the kernel
+kept OOM-killing the stack — every component now runs under a
+**GOMEMLIMIT** (Grafana 180 / collector 110 / Prometheus 80 / Caddy
+16 MiB; `run-all.sh`, `sdip-start.sh`) trading spare CPU for a bounded
+footprint. The local compose stack keeps the full Loki + Tempo for
+exploration.
 
 Runtime configuration is env-only (see the `sdip-observability` block in
 `render.yaml`); secrets are `sync: false`, dashboard-only:

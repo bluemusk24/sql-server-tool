@@ -15,7 +15,10 @@
 #   2. Trimmed to fit the free instance's 512 MB: no Pyroscope, no
 #      Loki, no Tempo (traces accepted by the collector and discarded),
 #      no Grafana plugin downloads, no Tempo span-metrics generator,
-#      collector memory-limited. Metrics + alerting only.
+#      and every Go component heap-capped via GOMEMLIMIT (run-all.sh /
+#      sdip-start.sh) — the kernel OOM-killer still took the whole
+#      stack down once Grafana's heap drifted past ~430 MB RSS with
+#      the default GC. Metrics + alerting only.
 #   3. The SDIP application-metrics dashboard (#47) provisioned.
 #
 # Built by .github/workflows/observability.yaml, which publishes an

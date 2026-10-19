@@ -9,6 +9,13 @@
 # unaffected. When rebasing onto a newer otel-lgtm, diff against
 # upstream and carry these deletions over — everything else must stay
 # identical.
+#
+# Additionally each component is started with a GOMEMLIMIT (see the
+# memory budget note above the component list): Go's default GC lets
+# the heap double before reclaiming, which a 512 MB instance cannot
+# afford — after Tempo was removed Grafana alone still drifted to
+# ~430 MB RSS and the kernel kept OOM-killing the stack. Carry the
+# limits over on rebase too.
 
 READY_FILE=${LGTM_READY_FILE:-/tmp/ready}
 rm -f "$READY_FILE"
@@ -66,16 +73,30 @@ start_component() {
 # each so a component that exits before it becomes ready can be detected.
 declare -A component_pids
 
+# Memory budget (#48): 512 MB for every process in this container.
+# All three components are Go programs — GOMEMLIMIT caps how far the
+# heap may grow before the GC MUST reclaim, trading CPU for a bounded
+# footprint instead of a kernel OOM kill of the entire stack. Evidence:
+# after the Tempo removal the instance still OOM-killed ("server_failed
+# / oomKilled 512Mi" Render events at 16:28, 17:43 and 17:55) once
+# Grafana's heap drifted to ~300 MB of live objects (~430 MB RSS) within
+# an hour — Go's default GC (GOGC=100) lets the heap double before
+# reclaiming, which a 512 MB instance cannot afford. Heap budget:
+# Grafana 180 + collector 110 + Prometheus 80 MiB, plus Caddy 16 MiB
+# (sdip-start.sh) — ~386 MB of heap targets, leaving headroom for
+# runtimes and non-heap allocations under the 512 MB cap. Carry these
+# limits over on rebase too.
+
 start_component "grafana"
-./run-grafana.sh &
+GOMEMLIMIT=180MiB ./run-grafana.sh &
 component_pids[grafana]=$!
 
 start_component "otelcol"
-./run-otelcol.sh &
+GOMEMLIMIT=110MiB ./run-otelcol.sh &
 component_pids[otelcol]=$!
 
 start_component "prometheus"
-./run-prometheus.sh &
+GOMEMLIMIT=80MiB ./run-prometheus.sh &
 component_pids[prometheus]=$!
 
 echo "Waiting for the OpenTelemetry collector and the Grafana LGTM stack to start up..."

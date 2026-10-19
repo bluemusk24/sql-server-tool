@@ -34,7 +34,10 @@ extensions:
 processors:
   memory_limiter:
     check_interval: 5s
-    limit_mib: 300
+    # Hard backstop above the collector's GOMEMLIMIT=110MiB (run-all.sh)
+    # — high enough that it rarely trips, low enough to keep the whole
+    # container under the 512 MB instance cap.
+    limit_mib: 160
   batch:
 
 exporters:

@@ -868,7 +868,9 @@ front door, built from `observability/deploy/`:
 - **Free-tier caveats**: no persistent disk — metrics and alert state
   live on the ephemeral filesystem and reset whenever the service
   redeploys, restarts, or spins down (dashboards and datasources are
-  baked into the image and survive); the stack sleeps ~15 min after
+  baked into the image and survive). Every process runs under a
+  GOMEMLIMIT: the 512 MB instance OOM-kills the whole stack if any
+  component's Go heap runs away. The stack sleeps ~15 min after
   the last request and shares the workspace's 750 free instance hours
   with the two app services. The token gate matches nothing when
   `OTLP_INGEST_TOKEN` is unset, so ingest fails closed, never open.
