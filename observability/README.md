@@ -96,10 +96,11 @@ alerting depend on Prometheus alone. Tempo's removal was not the whole
 fix: Go's default GC lets each heap double before reclaiming, and
 Grafana alone drifted to ~430 MB RSS within an hour, so the kernel
 kept OOM-killing the stack — every component now runs under a
-**GOMEMLIMIT** (Grafana 180 / collector 110 / Prometheus 80 / Caddy
-16 MiB; `run-all.sh`, `sdip-start.sh`) trading spare CPU for a bounded
-footprint. The local compose stack keeps the full Loki + Tempo for
-exploration.
+**GOMEMLIMIT** (Grafana 160 / collector 96 / Prometheus 64 / Caddy
+12 MiB; `run-all.sh`, `sdip-start.sh`) sized against the measured
+non-heap overhead so the whole stack stays under 512 MB, trading
+spare CPU for a bounded footprint. The local compose stack keeps the
+full Loki + Tempo for exploration.
 
 Runtime configuration is env-only (see the `sdip-observability` block in
 `render.yaml`); secrets are `sync: false`, dashboard-only:

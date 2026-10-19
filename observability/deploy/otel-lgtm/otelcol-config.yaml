@@ -22,7 +22,10 @@ receivers:
     config:
       scrape_configs:
         - job_name: "opentelemetry-collector"
-          scrape_interval: 15s
+          # 30s (relaxed from 15s): halves the self-metric volume into
+          # Prometheus — less WAL churn and query load on an instance
+          # whose whole budget is 512 MB.
+          scrape_interval: 30s
           static_configs:
             - targets: ["127.0.0.1:8888"]
 
@@ -34,10 +37,10 @@ extensions:
 processors:
   memory_limiter:
     check_interval: 5s
-    # Hard backstop above the collector's GOMEMLIMIT=110MiB (run-all.sh)
+    # Hard backstop above the collector's GOMEMLIMIT=96MiB (run-all.sh)
     # — high enough that it rarely trips, low enough to keep the whole
     # container under the 512 MB instance cap.
-    limit_mib: 160
+    limit_mib: 132
   batch:
 
 exporters:

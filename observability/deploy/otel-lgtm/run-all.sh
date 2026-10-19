@@ -81,22 +81,25 @@ declare -A component_pids
 # / oomKilled 512Mi" Render events at 16:28, 17:43 and 17:55) once
 # Grafana's heap drifted to ~300 MB of live objects (~430 MB RSS) within
 # an hour — Go's default GC (GOGC=100) lets the heap double before
-# reclaiming, which a 512 MB instance cannot afford. Heap budget:
-# Grafana 180 + collector 110 + Prometheus 80 MiB, plus Caddy 16 MiB
-# (sdip-start.sh) — ~386 MB of heap targets, leaving headroom for
-# runtimes and non-heap allocations under the 512 MB cap. Carry these
+# reclaiming, which a 512 MB instance cannot afford. First cap round
+# (180/110/80) stopped the *impact* — zero downtime, continuous data —
+# but at rest the stack still summed to ~519 MB RSS (Grafana 251 +
+# collector 147 + Prometheus 91 + Caddy) over the 512 MB limit, so the
+# caps are sized against the *observed* non-heap overhead: heap targets
+# + runtime ≈ 470 MB total. Heap budget: Grafana 160 + collector 96 +
+# Prometheus 64 MiB, plus Caddy 12 MiB (sdip-start.sh). Carry these
 # limits over on rebase too.
 
 start_component "grafana"
-GOMEMLIMIT=180MiB ./run-grafana.sh &
+GOMEMLIMIT=160MiB ./run-grafana.sh &
 component_pids[grafana]=$!
 
 start_component "otelcol"
-GOMEMLIMIT=110MiB ./run-otelcol.sh &
+GOMEMLIMIT=96MiB ./run-otelcol.sh &
 component_pids[otelcol]=$!
 
 start_component "prometheus"
-GOMEMLIMIT=80MiB ./run-prometheus.sh &
+GOMEMLIMIT=64MiB ./run-prometheus.sh &
 component_pids[prometheus]=$!
 
 echo "Waiting for the OpenTelemetry collector and the Grafana LGTM stack to start up..."

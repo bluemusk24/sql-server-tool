@@ -13,6 +13,6 @@ export OTLP_INGEST_TOKEN="${OTLP_INGEST_TOKEN:-unconfigured}"
 
 echo "Starting Caddy (OTLP token gate + Grafana front door)..."
 # Same 512 MB budget as run-all.sh: cap Caddy's Go heap too.
-GOMEMLIMIT=16MiB caddy run --config /otel-lgtm/Caddyfile --adapter caddyfile &
+GOMEMLIMIT=12MiB caddy run --config /otel-lgtm/Caddyfile --adapter caddyfile &
 
 exec /otel-lgtm/run-all.sh
