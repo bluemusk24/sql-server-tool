@@ -1,0 +1,128 @@
+# Production database backup + restore test (post-module hardening).
+#
+# Why: Render's free Postgres tier schedules no backups, so the prod
+# database (users, investigations, reports) has no safety net of its
+# own. This workflow creates one entirely outside the Render stack:
+#
+#   1. pg_dump (custom format) from a `postgres:latest` container —
+#      client major >= server major, so it never breaks on a server
+#      upgrade;
+#   2. **restore the dump into a throwaway Postgres container** and
+#      assert the schema and core tables come back — a backup you
+#      haven't restored is a backup you don't have;
+#   3. upload the dump as a workflow artifact (30-day retention) —
+#      dated copies accumulate on GitHub's storage, outside this
+#      repo's infrastructure-as-code and outside Render.
+#
+# Secrets: SDIP_DATABASE_URL — prod's connection string (Render →
+# sql-server-prod → Environment). Never printed: the password is only
+# passed through env vars to pg_dump.
+#
+# Schedule: daily at 04:17 UTC. Note GitHub disables cron on repos
+# with no activity for 60 days — a green run re-enables it.
+# Manual run: Actions → "Back up production database" → Run workflow
+# (also the way to test the drill on demand).
+#
+# Scope note: dev runs on ephemeral SQLite (reseeded every deploy) —
+# prod is the only stateful store, so prod is what we back up.
+name: Back up production database
+
+on:
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    name: pg_dump prod + verify the restore
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dump, restore-test, and assert the data came back
+        env:
+          SDIP_DATABASE_URL: ${{ secrets.SDIP_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SDIP_DATABASE_URL:-}" ]; then
+            echo "::error::SDIP_DATABASE_URL secret is not set (Render → sql-server-prod → Environment)."
+            exit 1
+          fi
+          # Parse the URL into libpq env vars. The password is exported
+          # for the child processes only — never echoed, never in argv.
+          eval "$(python3 - <<'PY'
+          import os, shlex, urllib.parse
+          raw = os.environ["SDIP_DATABASE_URL"]
+          for prefix in ("postgresql+psycopg://", "postgresql+asyncpg://",
+                         "postgresql://", "postgres://"):
+              if raw.startswith(prefix):
+                  raw = "postgres://" + raw[len(prefix):]
+                  break
+          u = urllib.parse.urlparse(raw)
+          q = shlex.quote
+          print(f"export PGHOST={q(u.hostname)}")
+          print(f"export PGPORT={q(str(u.port or 5432))}")
+          print(f"export PGUSER={q(urllib.parse.unquote(u.username or ''))}")
+          print(f"export PGDATABASE={q(urllib.parse.unquote(u.path.lstrip('/')))}")
+          print(f"export PGPASSWORD={q(urllib.parse.unquote(u.password or ''))}")
+          PY
+          )"
+          echo "target: $PGHOST:$PGPORT/$PGDATABASE"
+
+          STAMP="$(date -u +%Y%m%d-%H%M%S)"
+          DUMP="sdip-prod-${STAMP}.dump"
+
+          docker run --rm \
+            -e PGPASSWORD -e PGHOST -e PGPORT -e PGUSER -e PGDATABASE \
+            postgres:latest \
+            pg_dump --format=custom --no-owner --no-privileges > "$DUMP"
+          ls -lh "$DUMP"
+          sha256sum "$DUMP"
+          if [ ! -s "$DUMP" ]; then
+            echo "::error::dump is empty"
+            exit 1
+          fi
+
+          # ── Restore test: a backup is only real once it restores ──
+          docker run -d --name restore-test \
+            -e POSTGRES_USER=restore -e POSTGRES_PASSWORD=restore-test \
+            postgres:latest
+          for i in $(seq 1 30); do
+            if docker exec restore-test pg_isready -U restore >/dev/null 2>&1; then
+              break
+            fi
+            sleep 2
+          done
+          docker exec -i restore-test \
+            pg_restore -U restore --dbname=postgres --no-owner --no-privileges < "$DUMP"
+
+          check() {
+            local label="$1" query="$2" got
+            got=$(docker exec restore-test psql -U restore -d postgres -tAc "$query")
+            echo "$label: $got"
+            if [ -z "$got" ] || [ "$got" = "0" ]; then
+              echo "::error::restore check failed: $label"
+              exit 1
+            fi
+          }
+          check "alembic version rows" "SELECT count(*) FROM alembic_version;"
+          check "organizations"        "SELECT count(*) FROM organizations;"
+          check "users"                "SELECT count(*) FROM users;"
+          check "investigations"       "SELECT count(*) FROM investigations;"
+          check "reports"              "SELECT count(*) FROM reports;"
+          TABLES=$(docker exec restore-test psql -U restore -d postgres -tAc \
+            "SELECT count(*) FROM information_schema.tables WHERE table_schema='public';")
+          echo "public tables restored: $TABLES"
+          docker rm -f restore-test >/dev/null
+          echo "restore verified ✓"
+
+          echo "DUMP_NAME=$DUMP" >> "$GITHUB_ENV"
+
+      - name: Archive the dump (dated copy, 30-day retention)
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdip-prod-db-${{ github.run_id }}
+          path: sdip-prod-*.dump
+          retention-days: 30
+          if-no-files-found: error
