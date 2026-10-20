@@ -862,7 +862,7 @@ investigations created, reports generated, and creation failures, plus
 rate/trend panels — with **Environment** and **Deployed version**
 dropdowns (multi-select, *All* default) filtering every panel via the
 `deployment_environment` / `service_version` labels — and an **Active
-alerts** panel showing the state of the provisioned alert rule (see
+alerts** panel (empty while no alert rules are provisioned; see
 *Alerting* below). See `observability/README.md`.
 
 ### Deployed observability backend (#48)
@@ -886,12 +886,14 @@ front door, built from `observability/deploy/`:
 - **Dev and prod both point here**, so one dashboard shows both
   environments side by side through the Environment dropdown
   (`deployment_environment` = `dev` / `prod`).
-- **Alerting**: a provisioned Grafana rule fires **Repeated creation
-  failures** when more than 3 creations fail within 15 minutes
-  (sustained 5 minutes) on any environment — every alert carries the
-  service, environment, deployed version, owner, and a link to the
-  dashboard. Firing alerts show under Alerting → Alerts and on the
-  dashboard's Active alerts panel; connect a contact point
+- **Alerting**: no rules are provisioned by default (the *Repeated
+  creation failures* rule was removed on request; `git revert`
+  restores it). Grafana's alerting engine is live — add rules in the
+  UI (deletable from the UI) or provision them from
+  `observability/grafana/provisioning/alerting/` (repo-managed: they
+  carry a *Provisioned* badge and are deleted by removing the file
+  and redeploying). Firing alerts show under Alerting → Alerts and on
+  the dashboard's Active alerts panel; connect a contact point
   (email/Slack/webhook) in Grafana to receive them. Details in
   `observability/README.md`.
 - **On-call worker** (`on-call-engineer/`): a dependency-free Python

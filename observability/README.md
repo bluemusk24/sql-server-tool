@@ -55,7 +55,7 @@ app --OTLP--> collector --traces--> Tempo   (:3200)
   by default) through the `deployment_environment` / `service_version`
   labels that the app attaches to every metric.
 - **Traces**: Grafana → Explore → Tempo → Search → service `sql-server`
-  — **local stack only**; the deployed backend is metrics + alerting
+  — **local stack only**; the deployed backend is metrics
   only (Tempo removed for the 512 MB budget; traces are discarded at
   the collector).
   Every request is a trace; the root span is the HTTP request, children
@@ -82,9 +82,9 @@ app --OTLP--> collector --traces--> Tempo   (:3200)
 | `deploy/otel-lgtm/Caddyfile` | The one public port: `/v1/*` → OTLP ingest (token-gated), everything else → Grafana (login required). Prometheus stays on loopback |
 | `deploy/otel-lgtm/sdip-start.sh` | Entrypoint: Caddy first, then upstream `run-all.sh` |
 | `deploy/otel-lgtm/run-all.sh` | Upstream v0.36.0 copy **minus Pyroscope, Loki and Tempo** (512 MB RAM budget); rebase against upstream when bumping the base image |
-| `deploy/otel-lgtm/grafana-*.yaml`, `grafana/dashboards/application-metrics.json`, `grafana/provisioning/alerting/sdip-alerts.yaml` | Datasources (uid `prometheus` etc.) + the SDIP dashboard + the alert rule, baked into the image so they survive data resets |
+| `deploy/otel-lgtm/grafana-*.yaml`, `grafana/dashboards/application-metrics.json` | Datasources (uid `prometheus` etc.) + the SDIP dashboard, baked into the image so they survive data resets |
 
-The deployed image is **metrics + alerting only, sized for the 512 MB
+The deployed image is **metrics only, sized for the 512 MB
 free instance**: Loki and Grafana's auto-installed plugin backends are
 dropped, and **Tempo is removed entirely** — its WAL grew under the
 apps' constant health-check trace stream and OOM-cycled the instance
@@ -123,33 +123,33 @@ the dashboard works on both unchanged.
 
 ## Alerting
 
-**Repeated creation failures** (`sdip-creation-failures`) is a
-Grafana-managed alert rule provisioned from
-`grafana/provisioning/alerting/sdip-alerts.yaml` into the `SDIP` folder — it
-fires on the counter behind the dashboard's *Creation failures* panel
-(`sdip_creations_failed_total`, `object_type` = `investigation` |
-`report`):
+No alert rules are provisioned by default — the earlier **Repeated
+creation failures** rule (`sdip-creation-failures`) was removed on
+request (2026-10-20); `git revert` of that commit restores it.
+Grafana's alerting engine is still in the image, and rules come in two
+flavors:
 
-- **Query**: `sum by (service_name, deployment_environment,
-  service_version, object_type) (increase(sdip_creations_failed_total[15m]))`
-- **Threshold**: `> 3` failures in 15 minutes, sustained `for: 5m` —
-  creations are human-paced and normally never fail, so several
-  failures in a short window already means users are stuck; the 5-minute
-  sustain filters one-off blips. No-data is OK (quiet periods must not
-  alert); a query error alerts.
-- **Every firing alert carries**: `service_name`,
-  `deployment_environment`, and `service_version` (labels promoted from
-  the OTLP resource attributes), plus `owner: dba-team`, `severity:
-  warning`, and the `dashboard_url` annotation — edit the `owner` in
-  `sdip-alerts.yaml` if the on-call DBA changes.
-- **Where you see it**: Grafana → **Alerting → Alerts**, and the
-  dashboard's **Active alerts** panel. To also *receive* alerts
-  (email/Slack/Teams webhook), add a contact point under **Alerting →
-  Contact points** — Grafana's default email contact point needs SMTP
-  credentials, so push delivery is deliberately left as a one-step
-  hookup with whatever channel you have.
-- **Local check**: `make observability` → the rule is in the same
-  folder; the local stack provisions it identically.
+- **UI-created rules** (Alerting → Alert rules → *New alert rule*):
+  stored in Grafana's database — editable and deletable from the UI
+  (⋮ → *Delete*). They do **not** survive data resets on free-tier
+  spin-down.
+- **Provisioned rules** (this repo): drop a YAML under
+  `grafana/provisioning/alerting/` — the observability workflow
+  rebuilds and redeploys the image on push. Provisioned rules carry a
+  *Provisioned* badge and **cannot be deleted from the UI**: delete
+  them by removing them from the file and redeploying.
+
+Firing alerts show under **Alerting → Alerts** and on the dashboard's
+*Active alerts* panel. Every firing alert carries `service_name`,
+`deployment_environment`, and `service_version` (labels promoted from
+the OTLP resource attributes). To also *receive* alerts
+(email/Slack/Teams webhook), add a contact point under **Alerting →
+Contact points** — Grafana's default email contact point needs SMTP
+credentials, so push delivery is deliberately left as a one-step
+hookup with whatever channel you have.
+
+- **Local check**: `make observability` provisions whatever is in
+  `grafana/provisioning/alerting/` identically.
 - **Reaction**: `on-call-engineer/poll.py` (repo root) polls this
   Alertmanager API every minute and starts a headless coding-agent
   session per firing alert — see `on-call-engineer/README.md`.
