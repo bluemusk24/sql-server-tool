@@ -886,15 +886,16 @@ front door, built from `observability/deploy/`:
 - **Dev and prod both point here**, so one dashboard shows both
   environments side by side through the Environment dropdown
   (`deployment_environment` = `dev` / `prod`).
-- **Alerting**: no rules are provisioned by default (the *Repeated
-  creation failures* rule was removed on request; `git revert`
-  restores it). Grafana's alerting engine is live — add rules in the
-  UI (deletable from the UI) or provision them from
-  `observability/grafana/provisioning/alerting/` (repo-managed: they
-  carry a *Provisioned* badge and are deleted by removing the file
-  and redeploying). Firing alerts show under Alerting → Alerts and on
-  the dashboard's Active alerts panel; connect a contact point
-  (email/Slack/webhook) in Grafana to receive them. Details in
+- **Alerting**: two provisioned Grafana rules watch **prod** only —
+  **Prod: repeated creation failures** (> 3 creation failures in 15
+  minutes, sustained 5 minutes — users are stuck) and **Prod:
+  investigation started** (activity signal whenever a DBA starts an
+  investigation on prod). Firing alerts show under Alerting → Alerts
+  and on the dashboard's Active alerts panel; connect a contact point
+  (email/Slack/webhook) in Grafana to receive them. Provisioned rules
+  carry a *Provisioned* badge: deleted by removing
+  `observability/grafana/provisioning/alerting/sdip-prod-alerts.yaml`
+  and redeploying, not from the UI. Details in
   `observability/README.md`.
 - **On-call worker** (`on-call-engineer/`): a dependency-free Python
   script polls the same alert API every minute; each new firing alert

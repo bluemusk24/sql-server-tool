@@ -123,30 +123,47 @@ the dashboard works on both unchanged.
 
 ## Alerting
 
-No alert rules are provisioned by default — the earlier **Repeated
-creation failures** rule (`sdip-creation-failures`) was removed on
-request (2026-10-20); `git revert` of that commit restores it.
-Grafana's alerting engine is still in the image, and rules come in two
-flavors:
+Two Grafana-managed rules are provisioned from
+`grafana/provisioning/alerting/sdip-prod-alerts.yaml` into the `SDIP`
+folder, both scoped to `deployment_environment="prod"` (dev activity
+never fires them):
 
+- **Prod: repeated creation failures** (`sdip-prod-creation-failures`) —
+  `increase(sdip_creations_failed_total{deployment_environment="prod"}[15m])`
+  `> 3`, sustained `for: 5m`; no-data is OK, a query error alerts.
+  Severity `warning`.
+- **Prod: investigation started** (`sdip-prod-investigation-started`) —
+  `increase(sdip_investigations_created_total{deployment_environment="prod"}[15m])`
+  `> 0`, `for: 1m`; an activity signal so the team always knows when a
+  DBA is investigating prod (any scope — whole instance or named
+  databases; the environment label comes from the prod service, not the
+  target). Severity `info`.
+
+Every firing alert carries `deployment_environment`, `service_name`,
+and `service_version` (labels promoted from the OTLP resource
+attributes), plus `owner: dba-team` — edit the `owner` in
+`sdip-prod-alerts.yaml` if the on-call DBA changes. Grafana alerts on
+the app's **telemetry**, not on the diagnosis itself: knowing a report
+found an offline database would need the app to emit a findings metric.
+
+Rules come in two flavors:
+
+- **Provisioned rules** (this repo, like the two above): carry a
+  *Provisioned* badge, survive free-tier data resets, and **cannot be
+  deleted from the UI** — delete them by removing them from the file
+  and redeploying. The earlier *Repeated creation failures* rule was
+  removed this way (2026-10-20); `git log` restores it.
 - **UI-created rules** (Alerting → Alert rules → *New alert rule*):
   stored in Grafana's database — editable and deletable from the UI
-  (⋮ → *Delete*). They do **not** survive data resets on free-tier
-  spin-down.
-- **Provisioned rules** (this repo): drop a YAML under
-  `grafana/provisioning/alerting/` — the observability workflow
-  rebuilds and redeploys the image on push. Provisioned rules carry a
-  *Provisioned* badge and **cannot be deleted from the UI**: delete
-  them by removing them from the file and redeploying.
+  (⋮ → *Delete*), but they do **not** survive data resets on
+  free-tier spin-down.
 
 Firing alerts show under **Alerting → Alerts** and on the dashboard's
-*Active alerts* panel. Every firing alert carries `service_name`,
-`deployment_environment`, and `service_version` (labels promoted from
-the OTLP resource attributes). To also *receive* alerts
-(email/Slack/Teams webhook), add a contact point under **Alerting →
-Contact points** — Grafana's default email contact point needs SMTP
-credentials, so push delivery is deliberately left as a one-step
-hookup with whatever channel you have.
+*Active alerts* panel. To also *receive* alerts (email/Slack/Teams
+webhook), add a contact point under **Alerting → Contact points** —
+Grafana's default email contact point needs SMTP credentials, so push
+delivery is deliberately left as a one-step hookup with whatever
+channel you have.
 
 - **Local check**: `make observability` provisions whatever is in
   `grafana/provisioning/alerting/` identically.
