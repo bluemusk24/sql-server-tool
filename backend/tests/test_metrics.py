@@ -115,14 +115,44 @@ def test_metrics_carry_environment_and_deployed_version(
 
     created_metric = by_name["sdip.investigations.created"]
     assert _sum(created_metric) == 1
-    assert created_metric.data.data_points[0].attributes["user.actor"] == "dba@acme.example"
+    # No per-event labels: open-ended label values (actor, format,
+    # object type) split the series and make its first post-boot event
+    # invisible to rate() again — the zero baseline below is the fix.
+    assert not created_metric.data.data_points[0].attributes
 
     active = by_name["sdip.users.active"].data.data_points[0]
     assert active.value == 1  # exactly the logged-in dba
 
     failed = by_name["sdip.creations.failed"]
     assert _sum(failed) == 1
-    assert failed.data.data_points[0].attributes["object.type"] == "report"
+    assert not failed.data.data_points[0].attributes
+
+
+def test_counters_export_a_zero_baseline_before_any_event() -> None:
+    """A fresh boot must publish 0-valued counter samples immediately.
+
+    Sync counters are otherwise silent until their first add(), so the
+    first event after a cold start appears as a series whose first
+    sample is already 1 — increase()/rate() then computes no change and
+    dashboards and alert rules read 0. Observed on prod 2026-10-20:
+    investigation #7 existed (and its report too), but the dashboard
+    showed 0 because prod had cold-started minutes earlier.
+    """
+    app = create_app("sqlite:///:memory:")
+    reader = InMemoryMetricReader()
+    assert (
+        setup_telemetry(app, exporter=InMemorySpanExporter(), metric_reader=reader)
+        is True
+    )
+
+    by_name, _ = _metrics_by_name(reader)
+    for name in (
+        "sdip.investigations.created",
+        "sdip.reports.generated",
+        "sdip.creations.failed",
+    ):
+        assert name in by_name, f"{name} missing its zero baseline"
+        assert _sum(by_name[name]) == 0
 
 
 def test_a_scoped_creation_is_not_counted_as_a_failure(
@@ -146,5 +176,8 @@ def test_a_scoped_creation_is_not_counted_as_a_failure(
         assert created.status_code == 201, created.text
 
     by_name, _ = _metrics_by_name(reader)
-    assert "sdip.creations.failed" not in by_name
+    # The baseline makes the failure counter *exist* at boot — the
+    # assertion is that a successful scoped creation leaves it at 0.
+    assert "sdip.creations.failed" in by_name
+    assert _sum(by_name["sdip.creations.failed"]) == 0
     assert _sum(by_name["sdip.investigations.created"]) == 1

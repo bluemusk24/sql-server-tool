@@ -101,6 +101,19 @@ class AppMetrics:
             unit="{failure}",
             description="Domain-object creations that raised an error.",
         )
+        # Establish a zero baseline immediately. Sync counters export
+        # nothing until their first add(), so without this the first
+        # event after every (free-tier) cold start lands on a series
+        # whose first sample is already 1 — rate()/increase() over any
+        # window then sees a flat line and the dashboard panels and
+        # alert rules report 0 (prod, 2026-10-20: investigation #7 was
+        # created and reported, yet "Investigations created" showed 0
+        # because prod had cold-started minutes earlier). The gauge
+        # below has callbacks and exports from the first cycle; the
+        # counters must match it.
+        self._investigations_created.add(0)
+        self._reports_generated.add(0)
+        self._creations_failed.add(0)
         meter.create_observable_gauge(
             "sdip.users.active",
             callbacks=[self._observe_active_users],
@@ -109,16 +122,30 @@ class AppMetrics:
         )
 
     def investigation_created(self, actor: str) -> None:
+        """Count a created investigation.
+
+        ``actor`` is deliberately **not** a metric label: open-ended
+        labels split the series, and every label combination's first
+        post-boot event would again be invisible to rate() (its series
+        starts flat at 1 — the bug the zero baseline fixes). The actor
+        is recorded in the router's log line instead.
+        """
         if self._enabled:
-            self._investigations_created.add(1, {"user.actor": actor})
+            self._investigations_created.add(1)
 
     def report_generated(self, fmt: str) -> None:
+        """Count an exported report artifact (``pdf``/``json`` detail
+        lives in the route/log, not as a metric label — see
+        :meth:`investigation_created` for why)."""
         if self._enabled:
-            self._reports_generated.add(1, {"format": fmt})
+            self._reports_generated.add(1)
 
     def creation_failed(self, object_type: str) -> None:
+        """Count a failed creation (``investigation``/``report`` detail
+        lives in the raised error's log, not as a metric label — see
+        :meth:`investigation_created` for why)."""
         if self._enabled:
-            self._creations_failed.add(1, {"object.type": object_type})
+            self._creations_failed.add(1)
 
     def touch_user(self, actor: str) -> None:
         """Record a request from ``actor``; feeds the active-users gauge."""

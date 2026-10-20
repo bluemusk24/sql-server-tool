@@ -835,10 +835,19 @@ requests come with their own domain counters, each point labelled with
 
 | Metric | Meaning |
 | --- | --- |
-| `sdip.investigations.created` | Investigations created (`POST /investigations`), labelled by `user.actor` |
+| `sdip.investigations.created` | Investigations created (`POST /investigations`) |
 | `sdip.users.active` | Distinct authenticated users seen in the last 5 minutes |
-| `sdip.reports.generated` | Report exports, labelled by `format` (pdf/json) |
-| `sdip.creations.failed` | Investigation/report creations that raised, labelled by `object.type` |
+| `sdip.reports.generated` | Report exports (pdf/json) |
+| `sdip.creations.failed` | Investigation/report creations that raised |
+
+Each counter publishes a **zero baseline from the first collection
+cycle after boot** (sync counters are otherwise silent until their
+first event — the first event after a cold start would otherwise sit
+on a series whose first sample is already 1, and `rate()` /
+`increase()` — what the dashboard panels and alert rules use — would
+report 0 for it). Per-event detail (actor, format, object type)
+therefore stays in the app logs rather than as metric labels: label
+combinations would each start flat again after a restart.
 
 Auto-instrumentation also emits the standard HTTP request metrics
 (`http.server.request.duration` → request rate and latency). Prometheus
