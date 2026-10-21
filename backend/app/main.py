@@ -11,6 +11,8 @@ each gets its own isolated database.
 from __future__ import annotations
 
 import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,6 +24,13 @@ from app.db import (
     make_engine,
     make_session_factory,
     normalize_database_url,
+)
+from app.mcp_server import (
+    _CanonicalMcpPath,
+    mcp_http_app,
+)
+from app.mcp_server import (
+    server as mcp_server,
 )
 from app.routers import auth, fleet, health, investigations, jobs, orgs, reports
 from app.spa import mount_frontend
@@ -46,8 +55,25 @@ def allowed_origins() -> list[str]:
     return origins or DEV_ORIGINS
 
 
+@asynccontextmanager
+async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """Drive lifecycles that must run inside the event loop.
+
+    Seeding and engine setup stay in ``create_app`` (they run at factory
+    time). The MCP server's streamable-HTTP session manager (#51) is the
+    exception: mounted apps never receive lifespan events, so its task
+    group is started and stopped here.
+    """
+    async with mcp_server.session_manager.run():
+        yield
+
+
 def create_app(database_url: str | None = None) -> FastAPI:
-    app = FastAPI(title="SQL Server Diagnostic Assistant", version=__version__)
+    app = FastAPI(
+        title="SQL Server Diagnostic Assistant",
+        version=__version__,
+        lifespan=_lifespan,
+    )
 
     # Allow approved origins (see `allowed_origins`) to call the API.
     app.add_middleware(
@@ -92,6 +118,14 @@ def create_app(database_url: str | None = None) -> FastAPI:
     app.include_router(jobs.router)
     app.include_router(reports.router)
     app.include_router(fleet.router)
+
+    # MCP server (#51): /mcp beside the API, bearer-guarded and reading
+    # the same store as the routes above. The middleware canonicalizes
+    # the bare /mcp path so no redirect stands between an MCP client and
+    # authentication; mounted before the SPA so the catch-all never
+    # sees it; stateless so each POST is self-contained.
+    app.add_middleware(_CanonicalMcpPath)
+    app.mount("/mcp", mcp_http_app())
 
     # The built SPA, when the image ships one ($FRONTEND_DIST). Mounted
     # last so every API route above — and /docs — keeps priority (#35).

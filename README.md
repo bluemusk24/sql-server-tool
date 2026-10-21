@@ -351,6 +351,67 @@ The database scope is stored as a clean list of names; `databases: null`
 means "the whole instance". The store also accepts a legacy comma-joined
 string (`"Sales, Orders"`) and normalizes it to that list.
 
+### MCP server (AI assistants)
+
+`backend/app/mcp_server.py` (#51) exposes the same store to **MCP
+clients** (Claude Code, Cursor, …) at **`POST /mcp`** — streamable HTTP,
+stateless, one JSON exchange per POST. It is additive: the REST API,
+UI, and SPA are untouched, and the tools read only SDIP's own database
+(they never open a connection to a monitored SQL Server).
+
+**Auth is identical to REST**: the same opaque bearer tokens from
+`POST /auth/login`, sent as `Authorization: Bearer <token>`; the
+endpoint answers **401** (with `WWW-Authenticate: Bearer`) otherwise.
+Each request gets a request-scoped session, and authenticated MCP calls
+count the user as active in the metrics, exactly like API calls.
+
+| Tool | Purpose |
+| ---- | ------- |
+| `list_data_sources` | The diagnostic catalog (purpose, `min_permission`, the `sql_text` humans approve) |
+| `list_investigations` | Every investigation: target, status, `created_at` |
+| `get_investigation` | One investigation in full, catalog included |
+| `get_report` | Report payload: findings, primary cause, confidence, evidence |
+| `get_fleet_summary` | Org-scoped "which server needs attention" summary |
+| `create_investigation` | Prepare a draft — **never takes credentials** |
+| `start_investigation_run` | Start an approved run (live or demo), returns a `job_id` |
+
+Guard rails carried over from the product's rules:
+
+- **MCP has no approval tool.** Reviewing `sql_text` and approving the
+  gate stays human-only (the web UI / REST), so an AI client can
+  prepare and start runs but never bypass review — `start_investigation_run`
+  refuses until every catalog entry is approved.
+- `create_investigation` cannot carry credentials: passwords only enter
+  at run time, same as the API. Passing `username`/`password` to
+  `start_investigation_run` works (it mirrors `POST …/run`), but those
+  values transit the AI client's transcript — prefer the web UI for
+  live SQL auth; the tool description says so too.
+
+Connect a client (token from `POST /auth/login`):
+
+```bash
+# Claude Code
+claude mcp add --transport http --header "Authorization: Bearer $SDIP_TOKEN" \
+  sdip https://sql-server-prod.onrender.com/mcp
+```
+
+```json
+// Cursor — .cursor/mcp.json
+{
+  "mcpServers": {
+    "sdip": {
+      "url": "https://sql-server-prod.onrender.com/mcp",
+      "headers": { "Authorization": "Bearer <token>" }
+    }
+  }
+}
+```
+
+Typical exchange: *"What did the last investigation of sql01 find?"* →
+`list_investigations` → `get_report`. The MCP transport is covered by
+`backend/tests/test_mcp.py` (auth gate, REST parity, the approval gate
+end to end).
+
 ### Project structure
 
 ```

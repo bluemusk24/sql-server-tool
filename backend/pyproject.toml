@@ -10,6 +10,7 @@ dependencies = [
     "fastapi>=0.143.0",
     "httpx>=0.28.1",
     "joserfc>=1.7.5",
+    "mcp>=2.3.0",
     "opentelemetry-exporter-otlp-proto-http>=1.45.1",
     "opentelemetry-instrumentation-fastapi>=0.66b1",
     "opentelemetry-sdk>=1.45.1",
