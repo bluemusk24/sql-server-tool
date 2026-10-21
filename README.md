@@ -876,6 +876,15 @@ Render's **Manual Deploy → Deploy latest reference** is the CLI-free
 fallback for step 2 once the `:prod` channel tag points at the old
 image.
 
+**Drill record** (2026-10-21, both legs executed against prod via the
+workflow above): rollback to `20261020-022534-07fcdb2` — 109 s
+([run 39535099431](https://github.com/bluemusk24/sql-server-tool/actions/runs/39535099431));
+restore to `20261021-015422-a811320` — 69 s
+([run 39535253479](https://github.com/bluemusk24/sql-server-tool/actions/runs/39535253479)).
+`/health`, the SPA, and feature presence (`/mcp` absent on the old
+image, `401` again on the new) were verified on each leg: measured
+recovery is **~2 minutes**.
+
 > The original pipeline brief targeted AWS with a GitHub OIDC role;
 > the owner swapped the destination to Render, with GHCR instead of
 > ECR (public repo → free registry, built-in `GITHUB_TOKEN`, no AWS
