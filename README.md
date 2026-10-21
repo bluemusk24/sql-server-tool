@@ -849,6 +849,33 @@ Deploy latest reference** on `sql-server-prod` remains a direct
 fallback. If SSO is ever enabled, register a second redirect URI
 (`<prod-url>/auth/callback`) at the identity provider.
 
+**Rollback runbook** (a bad release is live):
+
+1. **Pick the last known-good image tag.** Every promote run logs the
+   image it resolved (GitHub → Actions → the run's job log, or
+   `gh run view <run-id> --log`), and prod's current version is always
+   visible at `GET <prod>/health` (`commit` + `image`). Tags are
+   `<UTC-timestamp>-<short-sha>` and GHCR never deletes them, so any
+   past promote is replayable.
+2. **Re-promote the old tag**: Actions → "Promote dev to production" →
+   Run workflow → `image` = that tag. The same gates apply (GHCR
+   existence check, then prod `/health` must report the exact ref), so
+   a typo fails safe *before* anything restarts.
+3. **Verify** (~1–2 minutes end to end, including a 30–60 s restart
+   blip on the URL): `curl <prod>/health` shows the old `image`, log
+   in, smoke one API call.
+4. **Fix forward**: note the bad tag for the post-mortem; the next
+   normal promote supersedes the rollback.
+
+The database needs no action for code-only releases (alembic sits at
+version 1 — no destructive migration has ever shipped). Should a
+future release ever include one, restore from the nightly backup
+instead ([`backup-db.yml`](.github/workflows/backup-db.yml), 04:17 UTC
++ manual dispatch; its `restore verified` step is the restore path).
+Render's **Manual Deploy → Deploy latest reference** is the CLI-free
+fallback for step 2 once the `:prod` channel tag points at the old
+image.
+
 > The original pipeline brief targeted AWS with a GitHub OIDC role;
 > the owner swapped the destination to Render, with GHCR instead of
 > ECR (public repo → free registry, built-in `GITHUB_TOKEN`, no AWS
