@@ -39,13 +39,45 @@ collects read-only evidence and recommends next steps.
 backend/       # FastAPI application, SQLAlchemy store, migrations, and tests
 docs/          # spec.md, process.md, task-template.md, team roles
 frontend/      # React + TypeScript SPA
+img/           # Architecture diagram (architecture.svg), embedded below
 observability/ # Observability: local Compose stack (collector, Prometheus,
                # Loki, Tempo, Grafana) + deploy/ image for Render (#48,
                # metrics + alerting only) — see observability/README.md
-               # — see observability/README.md
 openapi.yaml   # The API contract both sides implement
 AGENTS.md      # Instructions for coding agents
 ```
+
+## Architecture
+
+![SDIP architecture: clients → the Render application service (REST +
+MCP behind one bearer auth, human approval gate, read-only diagnostics
+pipeline) → data and durability → CI/CD gates → observability](img/architecture.svg)
+
+Five lanes, top to bottom:
+
+- **Clients** — one origin serves three caller types: the React SPA,
+  MCP clients (`POST /mcp`, streamable HTTP + JSON), and plain API
+  scripts. All authenticate with the **same opaque bearer tokens**
+  (401 without one); MCP additionally binds its store/user per request.
+- **Application service (Render)** — a single container runs the
+  FastAPI routers, the MCP server (7 tools, **no approval tool** by
+  design), the **human approval gate** (a DBA reviews each query's
+  `sql_text`; runs refuse until approved, REST and MCP alike), and the
+  read-only diagnostics pipeline (ODBC `ApplicationIntent=ReadOnly`,
+  statement text truncated at the collection boundary #52, analysis →
+  reports). Only live runs ever touch a customer SQL Server — with
+  catalog SQL only, credentials used to connect and never stored.
+- **Data & durability** — Render Postgres for prod (alembic v1, no
+  destructive migrations), auto-reseeded SQLite on dev/local, and
+  nightly + manual **backups to Actions artifacts** with a verified
+  restore gate.
+- **CI/CD** — every push: lint, 169 backend tests, frontend tests,
+  Playwright e2e, image → GHCR; dev deploys behind a health gate;
+  **production moves only through the manual promote workflow**
+  (rollback = the same workflow with an older tag — drilled: ~2 min).
+- **Observability** — the app exports OTLP (traces + metrics) to a
+  separate free-tier service (collector → Prometheus → Grafana) with
+  zero-baseline counters (#50) and provisioned alert rules.
 
 ## Quickstart
 

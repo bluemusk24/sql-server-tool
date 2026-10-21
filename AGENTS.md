@@ -27,6 +27,7 @@ before closing.
 backend/       # FastAPI application, tests, migrations
 docs/          # spec.md, process.md, team docs
 frontend/      # React + TypeScript SPA
+img/           # Architecture diagram (architecture.svg)
 observability/ # Observability: local Compose stack + Render deploy image (#48)
 openapi.yaml
 AGENTS.md
