@@ -79,6 +79,34 @@ Five lanes, top to bottom:
   separate free-tier service (collector → Prometheus → Grafana) with
   zero-baseline counters (#50) and provisioned alert rules.
 
+## Screenshots
+
+The system in production (October 2026):
+
+**The DBA console** — the investigation queue: completed runs with
+one-click reports, live API status, and the human-side entry point for
+creating and approving investigations.
+
+![SDIP console — the investigation queue with completed runs](img/sdip-ui-home.png)
+
+**Render services** — all four services running from GHCR images:
+`sql-server` (dev), `sql-server-prod`, `sdip-observability`, and the
+managed Postgres `sdip-db`.
+
+![Render dashboard — sql-server, sql-server-prod, sdip-observability and sdip-db all deployed](img/render-services.png)
+
+**Application metrics** — OTLP counters exported by the app (#50):
+active users, investigations created, reports generated, and creation
+failures, plus per-second creation rates.
+
+![Grafana — Application Metrics dashboard](img/grafana-application-metrics.png)
+
+**Provisioned alert rules** — Grafana-managed SDIP prod rules sourced
+from `observability/grafana/provisioning/alerting/sdip-prod-alerts.yaml`
+and evaluated against Prometheus.
+
+![Grafana — provisioned SDIP production alert rules](img/grafana-alert-rules.png)
+
 ## Quickstart
 
 The fastest path uses the [`Makefile`](Makefile) — every common task is a
