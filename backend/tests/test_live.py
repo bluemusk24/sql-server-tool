@@ -20,11 +20,13 @@ from fastapi.testclient import TestClient
 
 from app import live
 from app.live import (
+    STATEMENT_TEXT_LIMIT,
     ConnectionSettings,
     LiveUnavailableError,
     build_connection_string,
     display_target,
     query_timeout_seconds,
+    redact_statement_text,
     render_sql,
     run_collection,
 )
@@ -436,3 +438,69 @@ def test_real_server_connect_and_collect() -> None:
     assert outcomes
     assert all(outcome.status in ("collected", "partial", "unavailable")
                for outcome in outcomes)
+
+
+# ── Statement-text redaction (#52) ───────────────────────────────────
+
+
+def test_redact_statement_text_keeps_short_and_non_string_values() -> None:
+    assert redact_statement_text("SELECT 1") == "SELECT 1"
+    assert (
+        redact_statement_text("x" * STATEMENT_TEXT_LIMIT)
+        == "x" * STATEMENT_TEXT_LIMIT
+    )
+    assert redact_statement_text(None) is None
+    assert redact_statement_text(42) == 42
+
+
+def test_redact_statement_text_truncates_with_a_length_marker() -> None:
+    long_sql = (
+        "SELECT ssn, card FROM customers WHERE region = 'EU'; -- " + "x" * 300
+    )
+    redacted = redact_statement_text(long_sql)
+
+    # The shape prefix survives (the DBA can still identify the query)…
+    assert redacted.startswith(long_sql[:STATEMENT_TEXT_LIMIT])
+    # …the cut is visible, naming the original length…
+    assert f"[truncated: {len(long_sql)} chars total]" in redacted
+    # …and the literals tail is gone.
+    assert "x" * 130 not in redacted
+
+
+def test_collection_truncates_statement_text_at_the_boundary() -> None:
+    long_text = (
+        "SELECT CustomerId, CardNumber FROM dbo.Customers "
+        "WHERE Card = '4111-1111-1111-1111'; " + "z" * 300
+    )
+    cursor = FakeCursor(
+        rows=[(3, long_text, "INSERT ok")],
+        description=[("execution_count",), ("text",), ("note",)],
+    )
+    conn = FakeConnection([cursor])
+    outcomes = run_collection(
+        [entry("top_queries")],
+        sql_settings(),
+        lookback_hours=4,
+        connect_fn=lambda settings: conn,
+    )
+
+    (outcome,) = outcomes
+    row = outcome.evidence[0]
+    # Statement text: prefix + marker; every other column untouched.
+    assert row["text"].startswith(long_text[:STATEMENT_TEXT_LIMIT])
+    assert "chars total" in row["text"]
+    assert row["execution_count"] == 3
+    assert row["note"] == "INSERT ok"
+
+
+def test_collection_passes_short_statement_text_through_unchanged() -> None:
+    short = "SELECT 1 AS ok;"
+    cursor = FakeCursor(rows=[(short,)], description=[("text",)])
+    conn = FakeConnection([cursor])
+    (outcome,) = run_collection(
+        [entry("top_queries")],
+        sql_settings(),
+        lookback_hours=4,
+        connect_fn=lambda settings: conn,
+    )
+    assert outcome.evidence[0]["text"] == short

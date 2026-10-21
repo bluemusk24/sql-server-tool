@@ -196,6 +196,11 @@ curl -X POST http://localhost:8000/investigations/1/run \
 - Credentials are **session-only**: used to open the connection, never
   stored in the investigation, job, report, or logs (spec §6). The
   frontend keeps them in memory only, between the form and the run start.
+- Captured **statement text is truncated at the collection boundary**
+  (#52): outcome columns named `text`/`statement`/`query_text`/`command`
+  keep only a ~120-character query-shape prefix plus a visible
+  `[truncated: N chars total]` marker — customer SQL literals (PII,
+  secrets) never sit at rest in reports, exports, or backups.
 - Connection or query failures become `unavailable` sources with explicit
   coverage gaps — never fabricated findings (spec §3.8).
 - The driver is optional at runtime: without it (or without a reachable

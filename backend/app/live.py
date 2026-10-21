@@ -39,6 +39,16 @@ DEFAULT_RUN_TIMEOUT_SECONDS = 600
 #: Cap the evidence kept per source so one runaway query can't bloat a report.
 MAX_EVIDENCE_ROWS = 100
 
+#: Statement-text redaction (#52). DMV collectors can return full customer
+#: SQL — string literals, PII, secrets — which would then sit at rest in
+#: reports, exports, and backups. Read-only protects the server; this
+#: protects the data. Any outcome column named like statement text is
+#: truncated at the collection boundary, fail-safe for future collectors
+#: too (Darling's PerformanceMonitor withholds the same class of text).
+STATEMENT_TEXT_LIMIT = 120
+STATEMENT_TEXT_COLUMNS = frozenset({"text", "statement", "query_text", "command"})
+_TRUNCATED_MARK = " … [truncated: {total} chars total]"
+
 #: A database name may only be a plain identifier before it enters SQL.
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9_$]{1,128}$")
 
@@ -235,6 +245,20 @@ def _jsonable(value: Any) -> Any:
     return str(value)
 
 
+def redact_statement_text(value: Any, limit: int = STATEMENT_TEXT_LIMIT) -> Any:
+    """Shorten statement text to a readable query-shape prefix (#52).
+
+    Non-strings pass through untouched; text at or under the limit is
+    kept exactly as collected. Longer text keeps its first ``limit``
+    characters plus a marker naming the original length — the DBA can
+    still identify the query while the literals tail, where PII and
+    secrets live, is gone before anything is stored.
+    """
+    if not isinstance(value, str) or len(value) <= limit:
+        return value
+    return value[:limit] + _TRUNCATED_MARK.format(total=len(value))
+
+
 class RunTimeout(RuntimeError):
     """The overall run budget ran out (#29).
 
@@ -358,10 +382,17 @@ def _collect_one(
             else []
         )
         rows = cursor.fetchmany(MAX_EVIDENCE_ROWS)
-        evidence = [
-            {column: _jsonable(value) for column, value in zip(columns, row)}
-            for row in rows
-        ]
+        # Redact at the boundary (#52): raw statement text never leaves
+        # this function, so it can't reach generate_report payloads.
+        evidence = []
+        for row in rows:
+            record: dict[str, Any] = {}
+            for column, value in zip(columns, row):
+                cell = _jsonable(value)
+                if column.lower() in STATEMENT_TEXT_COLUMNS:
+                    cell = redact_statement_text(cell)
+                record[column] = cell
+            evidence.append(record)
         note = "" if len(rows) < MAX_EVIDENCE_ROWS else (
             f"showing the first {MAX_EVIDENCE_ROWS} rows"
         )
